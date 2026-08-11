@@ -1019,7 +1019,7 @@ export default function TeacherPanel() {
                   <span className="text-xs font-semibold text-slate-500">
                     Ditemukan: <b className="text-slate-900">{currentGrades.length}</b> data
                   </span>
-                  {selectedAsgFilter && (
+                  {selectedClassFilter && (
                     <button
                       onClick={() => setShowPrintModal(true)}
                       className="inline-flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-3xs cursor-pointer"
@@ -1634,7 +1634,7 @@ export default function TeacherPanel() {
           </div>
         )}
 
-        {showPrintModal && selectedAsgFilter && (
+        {showPrintModal && (selectedClassFilter || selectedAsgFilter) && (
           <div id="print-modal-backdrop" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, y: 15 }}
@@ -1666,48 +1666,71 @@ export default function TeacherPanel() {
                   <style dangerouslySetInnerHTML={{
                     __html: `
                       @media print {
-                        body {
-                          background: white !important;
-                          color: black !important;
-                        }
-                        #print-backdrop {
-                          background: transparent !important;
-                          position: static !important;
-                          padding: 0 !important;
+                        html, body {
+                          background: #ffffff !important;
+                          color: #000000 !important;
+                          height: auto !important;
                           overflow: visible !important;
+                          margin: 0 !important;
+                          padding: 0 !important;
                         }
-                        /* Hide everything outside of print-area */
-                        body > * {
-                          display: none !important;
+
+                        /* Hide everything by default using visibility */
+                        body * {
+                          visibility: hidden !important;
                         }
-                        #print-area-wrapper-body {
-                          display: block !important;
-                        }
-                        /* Show only our print area */
-                        #print-area, #print-area * {
+
+                        /* Show print modal containers and print area */
+                        #print-modal-backdrop,
+                        #print-modal-backdrop *,
+                        #print-area,
+                        #print-area * {
                           visibility: visible !important;
-                          display: block !important;
                         }
-                        #print-area {
-                          position: absolute;
-                          left: 0;
-                          top: 0;
-                          width: 100%;
-                          border: none !important;
-                          box-shadow: none !important;
+
+                        #print-modal-backdrop {
+                          position: absolute !important;
+                          left: 0 !important;
+                          top: 0 !important;
+                          width: 100% !important;
+                          height: auto !important;
+                          background: transparent !important;
                           padding: 0 !important;
                           margin: 0 !important;
+                          overflow: visible !important;
+                          display: block !important;
+                          box-shadow: none !important;
+                          border: none !important;
                         }
+
+                        #print-area {
+                          position: absolute !important;
+                          left: 0 !important;
+                          top: 0 !important;
+                          width: 100% !important;
+                          max-width: 100% !important;
+                          margin: 0 !important;
+                          padding: 15px !important;
+                          border: none !important;
+                          box-shadow: none !important;
+                          background: white !important;
+                          color: black !important;
+                          -webkit-print-color-adjust: exact !important;
+                          print-color-adjust: exact !important;
+                        }
+
                         .no-print {
                           display: none !important;
                         }
-                        table {
+
+                        #print-area table {
                           width: 100% !important;
                           border-collapse: collapse !important;
                         }
-                        th, td {
-                          border: 1px solid #cbd5e1 !important;
-                          padding: 8px !important;
+
+                        #print-area th, #print-area td {
+                          border: 1px solid #475569 !important;
+                          padding: 6px 8px !important;
                         }
                       }
                     `
@@ -1721,25 +1744,98 @@ export default function TeacherPanel() {
 
                   {/* METADATA INFORMASI */}
                   {(() => {
-                    const asgObj = assignments.find(a => a.id === selectedAsgFilter);
-                    const targetClassIds = asgObj?.classId ? asgObj.classId.split(',').map(s => s.trim()) : [];
-                    const targetClassNames = targetClassIds.map(id => classes.find(c => c.id === id)?.name || id).join(', ');
-                    const subObj = subjects.find(s => s.id === asgObj?.subjectId);
-                    const teacherObj = teachers.find(t => t.id === asgObj?.teacherId);
+                    const selectedClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
+                    const printClassName = selectedClassObj ? `Kelas ${selectedClassObj.name}` : (selectedClassFilter || 'Semua Kelas');
 
-                    const classStudents = students.filter(s => targetClassIds.includes(s.classId));
-                    const sortedClassStudents = [...classStudents].sort((a, b) => (a.nis || '').localeCompare(b.nis || ''));
+                    const asgObj = teacherAssignments.find(a => a.id === selectedAsgFilter);
+                    const printTaskTitle = asgObj ? asgObj.title : 'Semua Tugas';
+
+                    const subObj = subjects.find(s => s.id === asgObj?.subjectId);
+                    const printSubject = subObj?.name || (currentUser?.meta?.subject || 'Semua Mata Pelajaran');
+
+                    const teacherObj = teachers.find(t => t.id === (asgObj?.teacherId || currentUser?.id));
+                    const printTeacherName = teacherObj?.name || currentUser?.name || '-';
+
+                    const statusFilterLabel = selectedStatusFilter === 'UNGRADED'
+                      ? 'Belum Dinilai'
+                      : selectedStatusFilter === 'GRADED'
+                      ? 'Sudah Dinilai'
+                      : 'Semua Status';
+
+                    // Data list for report:
+                    // If a specific assignment is selected and status filter is ALL, show all students in class
+                    // Otherwise, render currentGrades (which respects selectedClassFilter, selectedAsgFilter, selectedStatusFilter)
+                    type PrintRow = {
+                      id: string;
+                      nis: string;
+                      studentName: string;
+                      taskTitle: string;
+                      statusText: string;
+                      gradeValue: string | number;
+                      feedbackText: string;
+                    };
+
+                    let printRows: PrintRow[] = [];
+
+                    if (selectedAsgFilter && selectedStatusFilter === 'ALL') {
+                      const targetClassIds = asgObj?.classId ? asgObj.classId.split(',').map(s => s.trim()) : [selectedClassFilter];
+                      const classStudents = students.filter(s => {
+                        const sCls = (s.classId || '').toLowerCase();
+                        const tCls = (selectedClassObj?.name || selectedClassFilter).toLowerCase();
+                        return targetClassIds.includes(s.classId) || sCls === tCls || sCls.includes(tCls);
+                      });
+                      const sortedStudents = [...classStudents].sort((a, b) => (a.nis || '').localeCompare(b.nis || ''));
+
+                      printRows = sortedStudents.map((std) => {
+                        const grd = grades.find(g => g.studentId === std.id && g.assignmentId === selectedAsgFilter);
+                        let statusText = "Belum Mengumpul";
+                        if (grd) {
+                          if (grd.status === 'SUBMITTED') statusText = "Belum Dinilai";
+                          else if (grd.status === 'GRADED') statusText = "Telah Dinilai";
+                          else if (grd.status === 'RESET') statusText = "Minta Ulang";
+                        }
+                        return {
+                          id: std.id,
+                          nis: std.nis || '-',
+                          studentName: std.name,
+                          taskTitle: asgObj?.title || '-',
+                          statusText,
+                          gradeValue: (grd && grd.grade !== undefined) ? grd.grade : '-',
+                          feedbackText: grd?.feedback || (grd?.grade !== undefined ? '-' : 'Belum mengumpulkan tugas')
+                        };
+                      });
+                    } else {
+                      printRows = currentGrades.map((g) => {
+                        const std = students.find(s => s.id === g.studentId);
+                        const asg = teacherAssignments.find(a => a.id === g.assignmentId);
+                        let statusText = "Belum Dinilai";
+                        if (g.status === 'GRADED') statusText = "Telah Dinilai";
+                        else if (g.status === 'RESET') statusText = "Minta Ulang";
+
+                        return {
+                          id: g.id,
+                          nis: std?.nis || '-',
+                          studentName: std?.name || g.studentId,
+                          taskTitle: asg?.title || 'Tugas Terhapus',
+                          statusText,
+                          gradeValue: g.grade !== undefined ? g.grade : '-',
+                          feedbackText: g.feedback || '-'
+                        };
+                      });
+                    }
 
                     return (
                       <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-4 text-xs">
                           <div className="space-y-1.5 text-left">
-                            <p>Mata Pelajaran : <b className="text-slate-900">{subObj?.name || '-'}</b></p>
-                            <p>Nama Latihan/Tugas : <b className="text-slate-900">{asgObj?.title || '-'}</b></p>
+                            <p>Kelas / Jenjang : <b className="text-slate-900">{printClassName}</b></p>
+                            <p>Mata Pelajaran : <b className="text-slate-900">{printSubject}</b></p>
+                            <p>Nama Latihan/Tugas : <b className="text-slate-900">{printTaskTitle}</b></p>
                           </div>
                           <div className="space-y-1.5 text-left md:pl-8">
-                            <p>Kelas / Jenjang : <b className="text-slate-900">{targetClassNames || '-'}</b></p>
-                            <p>Guru Pengampu : <b className="text-slate-900">{teacherObj?.name || '-'}</b></p>
+                            <p>Status Saringan : <b className="text-slate-900">{statusFilterLabel}</b></p>
+                            <p>Guru Pengampu : <b className="text-slate-900">{printTeacherName}</b></p>
+                            <p>Total Data : <b className="text-slate-900">{printRows.length} Siswa</b></p>
                           </div>
                         </div>
 
@@ -1748,48 +1844,44 @@ export default function TeacherPanel() {
                           <table className="w-full text-left border-collapse text-xs">
                             <thead>
                               <tr className="bg-slate-100 border-b border-slate-350 text-slate-650 font-extrabold uppercase text-[10px]">
-                                <th className="p-3 border-r border-slate-300 w-12 text-center">No</th>
-                                <th className="p-3 border-r border-slate-300 w-32 text-center">NIS</th>
+                                <th className="p-3 border-r border-slate-300 w-10 text-center">No</th>
+                                <th className="p-3 border-r border-slate-300 w-28 text-center">NIS</th>
                                 <th className="p-3 border-r border-slate-300">Nama Lengkap Murid</th>
-                                <th className="p-3 border-r border-slate-300 w-36 text-center">Status</th>
-                                <th className="p-3 border-r border-slate-300 w-24 text-center">Nilai Angka</th>
-                                <th className="p-3">Catatan Kompetensi / Ulasan</th>
+                                {!selectedAsgFilter && (
+                                  <th className="p-3 border-r border-slate-300">Judul Tugas</th>
+                                )}
+                                <th className="p-3 border-r border-slate-300 w-28 text-center">Status</th>
+                                <th className="p-3 border-r border-slate-300 w-20 text-center">Nilai</th>
+                                <th className="p-3">Catatan / Ulasan</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-300 text-slate-700">
-                              {sortedClassStudents.length === 0 ? (
+                              {printRows.length === 0 ? (
                                 <tr>
-                                  <td colSpan={6} className="p-4 text-center text-slate-400 italic">Tidak ada siswa terdaftar untuk kelas ini.</td>
+                                  <td colSpan={selectedAsgFilter ? 6 : 7} className="p-4 text-center text-slate-400 italic">
+                                    Tidak ada data siswa yang sesuai dengan filter saat ini.
+                                  </td>
                                 </tr>
                               ) : (
-                                sortedClassStudents.map((std, idx) => {
-                                  const grd = grades.find(g => g.studentId === std.id && g.assignmentId === selectedAsgFilter);
-                                  const hasGrade = grd && grd.grade !== undefined;
-                                  
-                                  let statusText = "Belum Mengumpul";
-                                  if (grd) {
-                                    if (grd.status === 'SUBMITTED') statusText = "Diperiksa";
-                                    else if (grd.status === 'GRADED') statusText = "Telah Dinilai";
-                                    else if (grd.status === 'RESET') statusText = "Minta Ulang";
-                                  }
-
-                                  return (
-                                    <tr key={std.id} className="hover:bg-slate-50/50">
-                                      <td className="p-2.5 border-r border-slate-300 text-center font-mono">{idx + 1}</td>
-                                      <td className="p-2.5 border-r border-slate-300 font-mono font-bold text-center">{std.nis || '-'}</td>
-                                      <td className="p-2.5 border-r border-slate-300 font-bold text-slate-900">{std.name}</td>
-                                      <td className="p-2.5 border-r border-slate-300 text-center font-semibold text-[10px]">
-                                        {statusText}
-                                      </td>
-                                      <td className="p-2.5 border-r border-slate-300 text-center font-mono font-black text-sm text-teal-700">
-                                        {hasGrade ? grd.grade : '-'}
-                                      </td>
-                                      <td className="p-2.5 text-left text-[10.5px] italic text-slate-550">
-                                        {grd?.feedback || (hasGrade ? '-' : 'Belum mengumpulkan tugas')}
-                                      </td>
-                                    </tr>
-                                  );
-                                })
+                                printRows.map((row, idx) => (
+                                  <tr key={row.id || idx} className="hover:bg-slate-50/50">
+                                    <td className="p-2.5 border-r border-slate-300 text-center font-mono">{idx + 1}</td>
+                                    <td className="p-2.5 border-r border-slate-300 font-mono font-bold text-center">{row.nis}</td>
+                                    <td className="p-2.5 border-r border-slate-300 font-bold text-slate-900">{row.studentName}</td>
+                                    {!selectedAsgFilter && (
+                                      <td className="p-2.5 border-r border-slate-300 text-slate-800">{row.taskTitle}</td>
+                                    )}
+                                    <td className="p-2.5 border-r border-slate-300 text-center font-semibold text-[10px]">
+                                      {row.statusText}
+                                    </td>
+                                    <td className="p-2.5 border-r border-slate-300 text-center font-mono font-black text-sm text-teal-700">
+                                      {row.gradeValue}
+                                    </td>
+                                    <td className="p-2.5 text-left text-[10.5px] italic text-slate-550">
+                                      {row.feedbackText}
+                                    </td>
+                                  </tr>
+                                ))
                               )}
                             </tbody>
                           </table>
@@ -1803,8 +1895,8 @@ export default function TeacherPanel() {
                               <p className="font-semibold">Guru Pengampu</p>
                             </div>
                             <div className="space-y-0.5">
-                              <p className="font-bold underline">{teacherObj?.name || '_____________________'}</p>
-                              <p className="text-[10px] text-slate-450">NIP/NIK: {teacherObj?.id || '-'}</p>
+                              <p className="font-bold underline">{printTeacherName}</p>
+                              <p className="text-[10px] text-slate-450">NIP/NIK: {teacherObj?.id || currentUser?.id || '-'}</p>
                             </div>
                           </div>
                         </div>
