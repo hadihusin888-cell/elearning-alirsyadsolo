@@ -1775,37 +1775,8 @@ export default function TeacherPanel() {
                       feedbackText: string;
                     };
 
-                    let printRows: PrintRow[] = [];
-
-                    if (selectedAsgFilter && selectedStatusFilter === 'ALL') {
-                      const targetClassIds = asgObj?.classId ? asgObj.classId.split(',').map(s => s.trim()) : [selectedClassFilter];
-                      const classStudents = students.filter(s => {
-                        const sCls = (s.classId || '').toLowerCase();
-                        const tCls = (selectedClassObj?.name || selectedClassFilter).toLowerCase();
-                        return targetClassIds.includes(s.classId) || sCls === tCls || sCls.includes(tCls);
-                      });
-                      const sortedStudents = [...classStudents].sort((a, b) => (a.nis || '').localeCompare(b.nis || ''));
-
-                      printRows = sortedStudents.map((std) => {
-                        const grd = grades.find(g => g.studentId === std.id && g.assignmentId === selectedAsgFilter);
-                        let statusText = "Belum Mengumpul";
-                        if (grd) {
-                          if (grd.status === 'SUBMITTED') statusText = "Belum Dinilai";
-                          else if (grd.status === 'GRADED') statusText = "Telah Dinilai";
-                          else if (grd.status === 'RESET') statusText = "Minta Ulang";
-                        }
-                        return {
-                          id: std.id,
-                          nis: std.nis || '-',
-                          studentName: std.name,
-                          taskTitle: asgObj?.title || '-',
-                          statusText,
-                          gradeValue: (grd && grd.grade !== undefined) ? grd.grade : '-',
-                          feedbackText: grd?.feedback || (grd?.grade !== undefined ? '-' : 'Belum mengumpulkan tugas')
-                        };
-                      });
-                    } else {
-                      printRows = currentGrades.map((g) => {
+                    const printRows = currentGrades
+                      .map((g) => {
                         const std = students.find(s => s.id === g.studentId);
                         const asg = teacherAssignments.find(a => a.id === g.assignmentId);
                         let statusText = "Belum Dinilai";
@@ -1821,8 +1792,8 @@ export default function TeacherPanel() {
                           gradeValue: g.grade !== undefined ? g.grade : '-',
                           feedbackText: g.feedback || '-'
                         };
-                      });
-                    }
+                      })
+                      .sort((a, b) => a.studentName.localeCompare(b.studentName));
 
                     return (
                       <div className="space-y-4">
