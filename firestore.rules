@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Allow read, write for all collections in this app since it relies on a local/custom login mechanism rather than Firebase Auth
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
