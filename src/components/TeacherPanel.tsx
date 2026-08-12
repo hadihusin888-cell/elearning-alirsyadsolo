@@ -1656,10 +1656,7 @@ export default function TeacherPanel() {
                         </div>
 
                         {/* Opsi Auto-Fill Kategori Capaian */}
-                        <div className="space-y-1 mb-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
-                          <span className="text-[10px] font-extrabold text-slate-500 block text-left uppercase tracking-wider">
-                            Pilih Langsung Kategori Capaian (Auto Fill):
-                          </span>
+                        <div className="mb-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
                           <div className="flex flex-wrap gap-1.5">
                             {[
                               { range: '91–100', label: '91–100 (Sangat Baik)', text: 'Sangat baik, menguasai materi dan mampu menerapkannya secara mandiri.' },
