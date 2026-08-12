@@ -19,9 +19,20 @@ import {
   X,
   FileCheck,
   Calendar,
-  Printer
+  Printer,
+  Eye,
+  EyeOff,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+const getFeedbackByScore = (val: number): string => {
+  if (val >= 91) return 'Sangat baik, menguasai materi dan mampu menerapkannya secara mandiri.';
+  if (val >= 81) return 'Baik, memahami materi dan mampu menyelesaikan tugas dengan baik.';
+  if (val >= 71) return 'Cukup baik, memahami sebagian besar materi namun masih perlu latihan.';
+  if (val >= 61) return 'Perlu peningkatan, pemahaman materi masih perlu bimbingan dan latihan.';
+  return 'Perlu bimbingan lebih lanjut untuk memahami konsep dasar dan menyelesaikan tugas.';
+};
 
 export default function TeacherPanel() {
   const {
@@ -86,6 +97,8 @@ export default function TeacherPanel() {
   // Password Update
   const [oldPass, setOldPass] = useState('');
   const [newPass, setNewPass] = useState('');
+  const [showOldPass, setShowOldPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
   const [passMsg, setPassMsg] = useState({ type: '', text: '' });
 
   // Notifications
@@ -1158,26 +1171,46 @@ export default function TeacherPanel() {
 
               <div>
                 <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest mb-1 text-left">Password Sekarang</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Ketik password lama"
-                  className="w-full text-xs font-mono px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600"
-                  value={oldPass}
-                  onChange={(e) => setOldPass(e.target.value)}
-                />
+                <div className="relative">
+                  <input
+                    type={showOldPass ? "text" : "password"}
+                    required
+                    placeholder="Ketik password lama"
+                    className="w-full text-xs font-mono pl-4 pr-10 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600"
+                    value={oldPass}
+                    onChange={(e) => setOldPass(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOldPass(!showOldPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                    title={showOldPass ? "Sembunyikan password" : "Tampilkan password"}
+                  >
+                    {showOldPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest mb-1 text-left">Password Baru</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Ketik password baru"
-                  className="w-full text-xs font-mono px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600"
-                  value={newPass}
-                  onChange={(e) => setNewPass(e.target.value)}
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPass ? "text" : "password"}
+                    required
+                    placeholder="Ketik password baru"
+                    className="w-full text-xs font-mono pl-4 pr-10 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600"
+                    value={newPass}
+                    onChange={(e) => setNewPass(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPass(!showNewPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                    title={showNewPass ? "Sembunyikan password" : "Tampilkan password"}
+                  >
+                    {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <button
@@ -1608,11 +1641,54 @@ export default function TeacherPanel() {
                       </div>
 
                       <div>
-                        <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest mb-1 text-left">Ulasan / Catatan Capaian Siswa (Feedback)</label>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
+                          <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest text-left">
+                            Ulasan / Catatan Capaian Siswa (Feedback)
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setGFeedback(getFeedbackByScore(gValue))}
+                            className="inline-flex items-center gap-1.5 text-xs font-extrabold text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-1 rounded-lg transition border border-teal-200/80 cursor-pointer shadow-3xs self-start sm:self-auto"
+                            title="Isi otomatis ulasan sesuai dengan nilai angka di atas"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-teal-600" /> Auto Fill dari Nilai ({gValue})
+                          </button>
+                        </div>
+
+                        {/* Opsi Auto-Fill Kategori Capaian */}
+                        <div className="space-y-1 mb-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
+                          <span className="text-[10px] font-extrabold text-slate-500 block text-left uppercase tracking-wider">
+                            Pilih Langsung Kategori Capaian (Auto Fill):
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              { range: '91–100', label: '91–100 (Sangat Baik)', text: 'Sangat baik, menguasai materi dan mampu menerapkannya secara mandiri.' },
+                              { range: '81–90', label: '81–90 (Baik)', text: 'Baik, memahami materi dan mampu menyelesaikan tugas dengan baik.' },
+                              { range: '71–80', label: '71–80 (Cukup Baik)', text: 'Cukup baik, memahami sebagian besar materi namun masih perlu latihan.' },
+                              { range: '61–70', label: '61–70 (Perlu Peningkatan)', text: 'Perlu peningkatan, pemahaman materi masih perlu bimbingan dan latihan.' },
+                              { range: '≤60', label: '≤60 (Perlu Bimbingan)', text: 'Perlu bimbingan lebih lanjut untuk memahami konsep dasar dan menyelesaikan tugas.' },
+                            ].map((preset) => (
+                              <button
+                                key={preset.range}
+                                type="button"
+                                onClick={() => setGFeedback(preset.text)}
+                                className={`text-[10.5px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer text-left ${
+                                  gFeedback === preset.text
+                                    ? 'bg-teal-600 text-white border-teal-600 shadow-3xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-teal-50 hover:text-teal-800 hover:border-teal-300'
+                                }`}
+                                title={preset.text}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
                         <textarea
                           rows={3}
                           required
-                          className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600 bg-white resize-none"
+                          className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600 bg-white resize-none text-xs leading-relaxed"
                           placeholder="Ketik capaian spesifik, saran, atau pujian membangun bagi murid..."
                           value={gFeedback}
                           onChange={(e) => setGFeedback(e.target.value)}

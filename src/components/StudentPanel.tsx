@@ -17,7 +17,9 @@ import {
   Send,
   LogOut,
   Info,
-  Calendar
+  Calendar,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -51,6 +53,8 @@ export default function StudentPanel() {
   // Password fields
   const [oldPwd, setOldPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
+  const [showOldPwd, setShowOldPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
   const [pwdMsg, setPwdMsg] = useState({ type: '', text: '' });
 
   // Notifications
@@ -858,26 +862,46 @@ export default function StudentPanel() {
 
                 <div>
                   <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest mb-1 text-left">Password Sekarang</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Masukkan sandi lama"
-                    className="w-full text-xs font-mono px-4 py-3 border rounded-xl outline-none focus:border-teal-600 bg-white"
-                    value={oldPwd}
-                    onChange={(e) => setOldPwd(e.target.value)}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showOldPwd ? "text" : "password"}
+                      required
+                      placeholder="Masukkan sandi lama"
+                      className="w-full text-xs font-mono pl-4 pr-10 py-3 border rounded-xl outline-none focus:border-teal-600 bg-white"
+                      value={oldPwd}
+                      onChange={(e) => setOldPwd(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOldPwd(!showOldPwd)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                      title={showOldPwd ? "Sembunyikan password" : "Tampilkan password"}
+                    >
+                      {showOldPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest mb-1 text-left">Password Baru</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Masukkan sandi baru"
-                    className="w-full text-xs font-mono px-4 py-3 border rounded-xl outline-none focus:border-teal-600 bg-white"
-                    value={newPwd}
-                    onChange={(e) => setNewPwd(e.target.value)}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showNewPwd ? "text" : "password"}
+                      required
+                      placeholder="Masukkan sandi baru"
+                      className="w-full text-xs font-mono pl-4 pr-10 py-3 border rounded-xl outline-none focus:border-teal-600 bg-white"
+                      value={newPwd}
+                      onChange={(e) => setNewPwd(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPwd(!showNewPwd)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                      title={showNewPwd ? "Sembunyikan password" : "Tampilkan password"}
+                    >
+                      {showNewPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
