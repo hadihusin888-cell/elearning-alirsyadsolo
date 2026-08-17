@@ -37,10 +37,18 @@ export default function StudentPanel() {
 
   const [activeTab, setActiveTab] = useState<'dash' | 'materi' | 'tugas' | 'nilai' | 'setting'>('dash');
 
+  // Format class display name (sync 8B_PUTRI / 8B -> 8B Putra)
+  const formatClassLabel = (idOrName: string | undefined) => {
+    if (!idOrName) return '';
+    if (idOrName === '8B_PUTRI' || idOrName === '8B') return '8B Putra';
+    return idOrName;
+  };
+
   // Identify Student profile
   const currentStudent = students.find(s => s.id === currentUser?.id);
   const studentClassId = currentStudent?.classId || currentUser?.meta?.classId || '';
-  const classNameStr = classes.find(c => c.id === studentClassId)?.name || studentClassId;
+  const rawClassName = classes.find(c => c.id === studentClassId)?.name || studentClassId;
+  const classNameStr = formatClassLabel(rawClassName);
 
   // State
   const [selectedMapelFilter, setSelectedMapelFilter] = useState<string>('');
@@ -136,6 +144,17 @@ export default function StudentPanel() {
     const gradeMatch = (sNameClean || sIdClean).match(/\b(7|8|9)\b/) || (sNameClean || sIdClean).match(/(7|8|9)/);
     const studentGrade = gradeMatch ? gradeMatch[1] : null;
 
+    const normalizeClassStr = (str: string) => {
+      return str
+        .toLowerCase()
+        .replace(/^kelas\s+/, '')
+        .replace(/_putri|_putra/g, '')
+        .replace(/\s+(putri|putra)/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    };
+
+    const sNorm = normalizeClassStr(sNameClean || sIdClean);
+
     return classTokens.some(token => {
       // 1. Exact match with Student class ID or Name
       if (token === sIdClean || token === sNameClean) return true;
@@ -144,12 +163,16 @@ export default function StudentPanel() {
       const cleanToken = token.replace(/^kelas\s+/, '').trim();
       if (cleanToken === sIdClean || cleanToken === sNameClean) return true;
 
-      // 3. Grade level match e.g. material is for '9' or 'kelas 9' and student is in '9A'
+      // 3. Normalized alias matching (handles 8B_PUTRI, 8B Putra, 8B, etc.)
+      const tokenNorm = normalizeClassStr(cleanToken);
+      if (sNorm && tokenNorm && sNorm === tokenNorm) return true;
+
+      // 4. Grade level match e.g. material is for '9' or 'kelas 9' and student is in '9A'
       if (studentGrade) {
         if (cleanToken === studentGrade || token === `kelas ${studentGrade}`) return true;
       }
 
-      // 4. Prefix/suffix or partial match e.g. token '9a' matches student name '9a' or '9-a'
+      // 5. Prefix/suffix or partial match e.g. token '9a' matches student name '9a' or '9-a'
       if (sNameClean && (sNameClean.startsWith(cleanToken) || cleanToken.startsWith(sNameClean))) return true;
       if (sIdClean && (sIdClean.startsWith(cleanToken) || cleanToken.startsWith(sIdClean))) return true;
 

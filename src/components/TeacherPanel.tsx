@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useDb } from '../context/DbContext';
-import { Material, Assignment, Grade } from '../types';
+import { Material, Assignment, Grade, Class } from '../types';
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -64,6 +64,20 @@ export default function TeacherPanel() {
     return `Kelas ${name}`;
   };
 
+  // Live database classes synchronized with database records
+  const databaseClasses = useMemo(() => {
+    const list = classes && classes.length > 0 ? classes : [];
+    const uniqueMap = new Map<string, Class>();
+    list.forEach(c => {
+      const id = (c.id === '8B_PUTRI' || c.id === '8B_Putri' || c.id === '8B Putri' || c.id === 'Kelas 8B_PUTRI') ? '8B' : (c.id || c.name);
+      const name = formatClassLabel(c.name || c.id);
+      uniqueMap.set(id, { id, name });
+    });
+    return Array.from(uniqueMap.values()).sort((a, b) => 
+      a.name.localeCompare(b.name, undefined, { numeric: true })
+    );
+  }, [classes]);
+
   // Identify teacher
   const currentTeacher = teachers.find(t => t.id === currentUser?.id);
   const teacherSubjects = currentTeacher?.subjectsTaught || [];
@@ -74,6 +88,65 @@ export default function TeacherPanel() {
     (cid === '8B_PUTRI' || cid === '8B_Putri' || cid === '8B Putri' || cid === 'Kelas 8B_PUTRI') ? '8B' : cid
   )));
   const activeSubjectIds = Array.from(new Set(teacherSubjects.map(s => s.subjectId)));
+
+  // Available subjects (fallback to all subjects if teacher profile has none listed)
+  const availableSubjects = useMemo(() => {
+    if (activeSubjectIds.length > 0) {
+      const list = subjects.filter(s => activeSubjectIds.includes(s.id));
+      if (list.length > 0) return list;
+    }
+    return subjects;
+  }, [activeSubjectIds, subjects]);
+
+  // Helper to check if a class is selected in an array
+  const isClassSelected = (selectedList: string[], cls: Class) => {
+    if (!selectedList || selectedList.length === 0) return false;
+    const targetId = (cls.id || '').toLowerCase().trim();
+    const targetName = (cls.name || '').toLowerCase().trim();
+    const targetClean = targetName.replace(/^kelas\s+/i, '');
+
+    return selectedList.some(item => {
+      const itemNorm = (item || '').toLowerCase().trim();
+      const itemClean = itemNorm.replace(/^kelas\s+/i, '');
+
+      if (itemNorm === targetId || itemNorm === targetName || itemClean === targetClean) {
+        return true;
+      }
+      // 8B synchronization
+      if ((targetId === '8b' || targetClean.includes('8b')) && 
+          (itemNorm === '8b' || itemNorm === '8b_putri' || itemNorm.includes('8b') || itemClean.includes('8b'))) {
+        return true;
+      }
+      return false;
+    });
+  };
+
+  // Helper to toggle a class selection cleanly
+  const toggleClassSelection = (currentList: string[], cls: Class) => {
+    const selected = isClassSelected(currentList, cls);
+    const targetId = (cls.id === '8B_PUTRI' || cls.id === '8B_Putri' || cls.id === '8B Putri' || cls.id === 'Kelas 8B_PUTRI') ? '8B' : cls.id;
+
+    if (selected) {
+      return currentList.filter(item => {
+        const itemNorm = (item || '').toLowerCase().trim();
+        const itemClean = itemNorm.replace(/^kelas\s+/i, '');
+        const targetIdNorm = (cls.id || '').toLowerCase().trim();
+        const targetNameNorm = (cls.name || '').toLowerCase().trim();
+        const targetClean = targetNameNorm.replace(/^kelas\s+/i, '');
+
+        if (itemNorm === targetIdNorm || itemNorm === targetNameNorm || itemClean === targetClean) {
+          return false;
+        }
+        if ((targetIdNorm === '8b' || targetClean.includes('8b')) && 
+            (itemNorm === '8b' || itemNorm === '8b_putri' || itemNorm.includes('8b') || itemClean.includes('8b'))) {
+          return false;
+        }
+        return true;
+      });
+    } else {
+      return [...currentList, targetId];
+    }
+  };
 
   // States
   const [modalType, setModalType] = useState<'create' | 'edit' | 'grade' | null>(null);
@@ -242,13 +315,17 @@ export default function TeacherPanel() {
     setEditingAllIds([]);
     
     // Auto populate subject / class if only one exists
-    if (activeSubjectIds.length === 1) {
+    if (availableSubjects.length === 1) {
+      setMSubjectId(availableSubjects[0].id);
+      setTSubjectId(availableSubjects[0].id);
+    } else if (activeSubjectIds.length === 1) {
       setMSubjectId(activeSubjectIds[0]);
       setTSubjectId(activeSubjectIds[0]);
     }
-    if (activeClassIds.length === 1) {
-      setMClassIds([activeClassIds[0]]);
-      setTClassIds([activeClassIds[0]]);
+    
+    if (databaseClasses.length === 1) {
+      setMClassIds([databaseClasses[0].id]);
+      setTClassIds([databaseClasses[0].id]);
     } else {
       setMClassIds([]);
       setTClassIds([]);
@@ -858,7 +935,7 @@ export default function TeacherPanel() {
                         <div className="flex gap-1.5 flex-wrap">
                           {alloc.classIds.map(clsId => (
                             <span key={clsId} className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded border">
-                              {clsId}
+                              {formatClassLabel(clsId)}
                             </span>
                           ))}
                         </div>
@@ -886,7 +963,7 @@ export default function TeacherPanel() {
                         <div key={g.id} className="py-3 flex items-center justify-between gap-3 text-xs">
                           <div>
                             <p className="font-bold text-slate-900 truncate max-w-xs">{std?.name || g.studentId}</p>
-                            <p className="text-[10px] text-slate-400">{asg?.title} • Kelas {g.classId}</p>
+                            <p className="text-[10px] text-slate-400">{asg?.title} • {formatClassLabel(g.classId)}</p>
                           </div>
                           <button
                             onClick={() => { setActiveTab('nilai'); setSelectedAsgFilter(g.assignmentId); }}
@@ -1250,10 +1327,15 @@ export default function TeacherPanel() {
                       }}
                     >
                       <option value="">-- Pilih Kelas --</option>
-                      {classes
-                        .filter(c => activeClassIds.includes(c.id) || activeClassIds.includes(c.name) || teacherAssignments.some(a => (a.classId || '').includes(c.name) || (a.classId || '').includes(c.id)))
+                      {databaseClasses
+                        .filter(c => 
+                          activeClassIds.length === 0 ||
+                          activeClassIds.includes(c.id) || 
+                          activeClassIds.includes(c.name) || 
+                          teacherAssignments.some(a => (a.classId || '').includes(c.name) || (a.classId || '').includes(c.id))
+                        )
                         .map(c => (
-                          <option key={c.id} value={c.id}>{formatClassLabel(c.name)}</option>
+                          <option key={c.id} value={c.id}>{formatClassLabel(c.name || c.id)}</option>
                         ))}
                     </select>
                   </div>
@@ -1614,9 +1696,9 @@ export default function TeacherPanel() {
                           onChange={(e) => setMSubjectId(e.target.value)}
                         >
                           <option value="">-- Pilih Mapel --</option>
-                          {activeSubjectIds.map(subId => (
-                            <option key={subId} value={subId}>
-                              {subjects.find(s => s.id === subId)?.name || subId}
+                          {availableSubjects.map(sub => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
                             </option>
                           ))}
                         </select>
@@ -1625,51 +1707,46 @@ export default function TeacherPanel() {
                       <div>
                         <div className="flex justify-between items-center mb-2">
                           <label className="block text-[9px] font-black text-slate-600 uppercase tracking-wider text-left">
-                            Tujuan Kelas <span className="text-teal-650 font-extrabold">(Bisa Pilih Lebih Dari 1 Kelas)</span>
+                            Tujuan Kelas <span className="text-teal-600 font-extrabold">(Bisa Pilih Lebih Dari 1 Kelas)</span>
                           </label>
-                          {activeClassIds.length > 1 && (
+                          {databaseClasses.length > 1 && (
                             <button
                               type="button"
                               onClick={() => {
-                                if (mClassIds.length === activeClassIds.length) {
+                                const allSelected = databaseClasses.every(cls => isClassSelected(mClassIds, cls));
+                                if (allSelected) {
                                   setMClassIds([]);
                                 } else {
-                                  setMClassIds([...activeClassIds]);
+                                  setMClassIds(databaseClasses.map(cls => cls.id));
                                 }
                               }}
-                              className="text-teal-650 hover:text-teal-750 text-[10px] font-extrabold hover:underline cursor-pointer"
+                              className="text-teal-600 hover:text-teal-700 text-[10px] font-extrabold hover:underline cursor-pointer"
                             >
-                              {mClassIds.length === activeClassIds.length ? 'Batal Pilih Semua' : 'Pilih Semua Kelas'}
+                              {databaseClasses.every(cls => isClassSelected(mClassIds, cls)) ? 'Batal Pilih Semua' : 'Pilih Semua Kelas'}
                             </button>
                           )}
                         </div>
-                        {activeClassIds.length === 0 ? (
-                          <p className="text-2xs text-slate-400 italic text-left">Belum ada kelas yang ditugaskan untuk Anda.</p>
+                        {databaseClasses.length === 0 ? (
+                          <p className="text-2xs text-slate-400 italic text-left">Belum ada data kelas di database sekolah.</p>
                         ) : (
                           <div className="space-y-1.5">
                             <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-slate-200/80 bg-slate-50/50">
-                              {activeClassIds.map(clsId => {
-                                const isSelected = mClassIds.includes(clsId);
-                                const classObj = classes.find(c => c.id === clsId);
+                              {databaseClasses.map(classObj => {
+                                const isSelected = isClassSelected(mClassIds, classObj);
+                                const label = formatClassLabel(classObj.name || classObj.id);
                                 return (
                                   <button
                                     type="button"
-                                    key={clsId}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setMClassIds(mClassIds.filter(id => id !== clsId));
-                                      } else {
-                                        setMClassIds([...mClassIds, clsId]);
-                                      }
-                                    }}
-                                    className={`px-3 py-2 rounded-lg text-xs font-bold border transition duration-150 cursor-pointer select-none flex items-center gap-1.5 ${
+                                    key={classObj.id}
+                                    onClick={() => setMClassIds(toggleClassSelection(mClassIds, classObj))}
+                                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition duration-150 cursor-pointer select-none flex items-center gap-1.5 ${
                                       isSelected 
                                         ? 'bg-teal-600 border-teal-600 text-white shadow-xs' 
-                                        : 'bg-white border-slate-250 text-slate-700 hover:bg-slate-50'
+                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                                     }`}
                                   >
-                                    {isSelected && <span className="text-[10px]">✓</span>}
-                                    <span>Kelas {classObj?.name || clsId}</span>
+                                    {isSelected && <span className="text-[10px] font-black">✓</span>}
+                                    <span>{label}</span>
                                   </button>
                                 );
                               })}
@@ -1678,7 +1755,7 @@ export default function TeacherPanel() {
                               {mClassIds.length === 0 ? (
                                 <p className="text-red-500 font-semibold">* Wajib memilih minimal 1 kelas tujuan.</p>
                               ) : (
-                                <p className="text-teal-700 font-bold">Terpilih: {mClassIds.length} kelas tujuan</p>
+                                <p className="text-teal-700 font-bold">Terpilih: {mClassIds.length} kelas tujuan ({mClassIds.map(c => formatClassLabel(c)).join(', ')})</p>
                               )}
                             </div>
                           </div>
@@ -1772,9 +1849,9 @@ export default function TeacherPanel() {
                           onChange={(e) => setTSubjectId(e.target.value)}
                         >
                           <option value="">-- Pilih Mapel --</option>
-                          {activeSubjectIds.map(subId => (
-                            <option key={subId} value={subId}>
-                              {subjects.find(s => s.id === subId)?.name || subId}
+                          {availableSubjects.map(sub => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
                             </option>
                           ))}
                         </select>
@@ -1783,51 +1860,46 @@ export default function TeacherPanel() {
                       <div>
                         <div className="flex justify-between items-center mb-2">
                           <label className="block text-[9px] font-black text-slate-600 uppercase tracking-wider text-left">
-                            Tujuan Kelas <span className="text-teal-650 font-extrabold">(Bisa Pilih Lebih Dari 1 Kelas)</span>
+                            Tujuan Kelas <span className="text-teal-600 font-extrabold">(Bisa Pilih Lebih Dari 1 Kelas)</span>
                           </label>
-                          {activeClassIds.length > 1 && (
+                          {databaseClasses.length > 1 && (
                             <button
                               type="button"
                               onClick={() => {
-                                if (tClassIds.length === activeClassIds.length) {
+                                const allSelected = databaseClasses.every(cls => isClassSelected(tClassIds, cls));
+                                if (allSelected) {
                                   setTClassIds([]);
                                 } else {
-                                  setTClassIds([...activeClassIds]);
+                                  setTClassIds(databaseClasses.map(cls => cls.id));
                                 }
                               }}
-                              className="text-teal-650 hover:text-teal-750 text-[10px] font-extrabold hover:underline cursor-pointer"
+                              className="text-teal-600 hover:text-teal-700 text-[10px] font-extrabold hover:underline cursor-pointer"
                             >
-                              {tClassIds.length === activeClassIds.length ? 'Batal Pilih Semua' : 'Pilih Semua Kelas'}
+                              {databaseClasses.every(cls => isClassSelected(tClassIds, cls)) ? 'Batal Pilih Semua' : 'Pilih Semua Kelas'}
                             </button>
                           )}
                         </div>
-                        {activeClassIds.length === 0 ? (
-                          <p className="text-2xs text-slate-400 italic text-left">Belum ada kelas yang ditugaskan untuk Anda.</p>
+                        {databaseClasses.length === 0 ? (
+                          <p className="text-2xs text-slate-400 italic text-left">Belum ada data kelas di database sekolah.</p>
                         ) : (
                           <div className="space-y-1.5">
                             <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-slate-200/80 bg-slate-50/50">
-                              {activeClassIds.map(clsId => {
-                                const isSelected = tClassIds.includes(clsId);
-                                const classObj = classes.find(c => c.id === clsId);
+                              {databaseClasses.map(classObj => {
+                                const isSelected = isClassSelected(tClassIds, classObj);
+                                const label = formatClassLabel(classObj.name || classObj.id);
                                 return (
                                   <button
                                     type="button"
-                                    key={clsId}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setTClassIds(tClassIds.filter(id => id !== clsId));
-                                      } else {
-                                        setTClassIds([...tClassIds, clsId]);
-                                      }
-                                    }}
-                                    className={`px-3 py-2 rounded-lg text-xs font-bold border transition duration-150 cursor-pointer select-none flex items-center gap-1.5 ${
+                                    key={classObj.id}
+                                    onClick={() => setTClassIds(toggleClassSelection(tClassIds, classObj))}
+                                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition duration-150 cursor-pointer select-none flex items-center gap-1.5 ${
                                       isSelected 
                                         ? 'bg-teal-600 border-teal-600 text-white shadow-xs' 
-                                        : 'bg-white border-slate-250 text-slate-700 hover:bg-slate-50'
+                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                                     }`}
                                   >
-                                    {isSelected && <span className="text-[10px]">✓</span>}
-                                    <span>Kelas {classObj?.name || clsId}</span>
+                                    {isSelected && <span className="text-[10px] font-black">✓</span>}
+                                    <span>{label}</span>
                                   </button>
                                 );
                               })}
@@ -1836,7 +1908,7 @@ export default function TeacherPanel() {
                               {tClassIds.length === 0 ? (
                                 <p className="text-red-500 font-semibold">* Wajib memilih minimal 1 kelas tujuan.</p>
                               ) : (
-                                <p className="text-teal-700 font-bold">Terpilih: {tClassIds.length} kelas tujuan</p>
+                                <p className="text-teal-700 font-bold">Terpilih: {tClassIds.length} kelas tujuan ({tClassIds.map(c => formatClassLabel(c)).join(', ')})</p>
                               )}
                             </div>
                           </div>
