@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDb } from '../context/DbContext';
 import { Class, Subject, Teacher, Student } from '../types';
+import ErrorBoundary from './ErrorBoundary';
 import { 
   LayoutDashboard, 
   School, 

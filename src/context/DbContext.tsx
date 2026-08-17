@@ -190,56 +190,75 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   // Fallback state loading helper from local cache for high-fidelity instant start
   useEffect(() => {
-    const storedClasses = localStorage.getItem('smp_classes');
-    const storedSubjects = localStorage.getItem('smp_subjects');
-    const storedTeachers = localStorage.getItem('smp_teachers');
-    const storedStudents = localStorage.getItem('smp_students');
-    const storedMaterials = localStorage.getItem('smp_materials');
-    const storedAssignments = localStorage.getItem('smp_assignments');
-    const storedGrades = localStorage.getItem('smp_grades');
-    const storedAdminPassword = localStorage.getItem('smp_admin_pwd');
-    const storedUser = localStorage.getItem('smp_current_user');
+    try {
+      const storedClasses = localStorage.getItem('smp_classes');
+      const storedSubjects = localStorage.getItem('smp_subjects');
+      const storedTeachers = localStorage.getItem('smp_teachers');
+      const storedStudents = localStorage.getItem('smp_students');
+      const storedMaterials = localStorage.getItem('smp_materials');
+      const storedAssignments = localStorage.getItem('smp_assignments');
+      const storedGrades = localStorage.getItem('smp_grades');
+      const storedAdminPassword = localStorage.getItem('smp_admin_pwd');
+      const storedUser = localStorage.getItem('smp_current_user');
 
-    if (storedClasses) {
-      const parsed = JSON.parse(storedClasses);
-      const sanitized = sanitizeClassList(parsed);
-      setClasses(sanitized);
-      localStorage.setItem('smp_classes', JSON.stringify(sanitized));
-    }
-    if (storedSubjects) setSubjects(JSON.parse(storedSubjects));
-    if (storedTeachers) setTeachers(JSON.parse(storedTeachers));
-    if (storedStudents) setStudents(JSON.parse(storedStudents));
-    if (storedMaterials) setMaterials(JSON.parse(storedMaterials));
-    if (storedAssignments) setAssignments(JSON.parse(storedAssignments));
-    if (storedGrades) setGrades(JSON.parse(storedGrades));
-    if (storedAdminPassword) setAdminPassword(storedAdminPassword);
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser && (parsedUser.role === 'TEACHER' || parsedUser.role === 'STUDENT')) {
-          if (parsedUser.loginAt) {
-            const elapsed = Date.now() - parsedUser.loginAt;
-            // 1 hour = 3600000 ms
-            if (elapsed > 3600000) {
-              localStorage.removeItem('smp_current_user');
-              setCurrentUser(null);
+      if (storedClasses) {
+        try {
+          const parsed = JSON.parse(storedClasses);
+          const sanitized = sanitizeClassList(parsed);
+          setClasses(sanitized);
+          localStorage.setItem('smp_classes', JSON.stringify(sanitized));
+        } catch (e) {
+          console.warn('Failed to parse cached classes:', e);
+        }
+      }
+      if (storedSubjects) {
+        try { setSubjects(JSON.parse(storedSubjects)); } catch (e) { console.warn(e); }
+      }
+      if (storedTeachers) {
+        try { setTeachers(JSON.parse(storedTeachers)); } catch (e) { console.warn(e); }
+      }
+      if (storedStudents) {
+        try { setStudents(JSON.parse(storedStudents)); } catch (e) { console.warn(e); }
+      }
+      if (storedMaterials) {
+        try { setMaterials(JSON.parse(storedMaterials)); } catch (e) { console.warn(e); }
+      }
+      if (storedAssignments) {
+        try { setAssignments(JSON.parse(storedAssignments)); } catch (e) { console.warn(e); }
+      }
+      if (storedGrades) {
+        try { setGrades(JSON.parse(storedGrades)); } catch (e) { console.warn(e); }
+      }
+      if (storedAdminPassword) setAdminPassword(storedAdminPassword);
+      if (storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          if (parsedUser && (parsedUser.role === 'TEACHER' || parsedUser.role === 'STUDENT')) {
+            if (parsedUser.loginAt) {
+              const elapsed = Date.now() - parsedUser.loginAt;
+              // 1 hour = 3600000 ms
+              if (elapsed > 3600000) {
+                localStorage.removeItem('smp_current_user');
+                setCurrentUser(null);
+              } else {
+                setCurrentUser(parsedUser);
+              }
             } else {
+              parsedUser.loginAt = Date.now();
+              localStorage.setItem('smp_current_user', JSON.stringify(parsedUser));
               setCurrentUser(parsedUser);
             }
           } else {
-            // If logged in under the previous build and doesn't have a loginAt, default it to now
-            parsedUser.loginAt = Date.now();
-            localStorage.setItem('smp_current_user', JSON.stringify(parsedUser));
             setCurrentUser(parsedUser);
           }
-        } else {
-          setCurrentUser(parsedUser);
+        } catch (e) {
+          console.error("Gagal membaca data login pengguna:", e);
+          localStorage.removeItem('smp_current_user');
+          setCurrentUser(null);
         }
-      } catch (e) {
-        console.error("Gagal membaca data login pengguna:", e);
-        localStorage.removeItem('smp_current_user');
-        setCurrentUser(null);
       }
+    } catch (err) {
+      console.warn("Error reading local cache:", err);
     }
     
     // Set loading to false once cache is fully loaded to prevent stalling on login

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDb } from '../context/DbContext';
 import { Material, Assignment, Grade } from '../types';
+import ErrorBoundary from './ErrorBoundary';
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -9,19 +10,30 @@ import {
   Settings, 
   ExternalLink, 
   Clock, 
-  X,
-  CheckCircle2,
-  AlertCircle,
-  Hash,
-  User,
-  Send,
-  LogOut,
-  Info,
-  Calendar,
-  Eye,
-  EyeOff
+  X, 
+  CheckCircle2, 
+  AlertCircle, 
+  Hash, 
+  User, 
+  Send, 
+  LogOut, 
+  Info, 
+  Calendar, 
+  Eye, 
+  EyeOff 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+const formatDateSafe = (val?: string | null, options?: Intl.DateTimeFormatOptions): string => {
+  if (!val) return '-';
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toLocaleDateString('id-ID', options || { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return String(val);
+  }
+};
 
 export default function StudentPanel() {
   const {
@@ -535,7 +547,7 @@ export default function StudentPanel() {
                             {subObj?.name || m.subjectId}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono font-bold tracking-tight inline-flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-slate-300" /> {new Date(m.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            <Calendar className="w-3.5 h-3.5 text-slate-300" /> {formatDateSafe(m.createdAt)}
                           </span>
                         </div>
                         <h4 className="font-serif-heading font-extrabold text-slate-900 text-sm tracking-tight leading-snug text-left">{m.title}</h4>

@@ -4,7 +4,7 @@ import LandingPage from './components/LandingPage';
 import AdminPanel from './components/AdminPanel';
 import TeacherPanel from './components/TeacherPanel';
 import StudentPanel from './components/StudentPanel';
-import { School } from 'lucide-react';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function ActivePortal() {
   const { currentUser, isLoading } = useDb();
@@ -36,11 +36,23 @@ function ActivePortal() {
 
   switch (currentUser.role) {
     case 'ADMIN':
-      return <AdminPanel />;
+      return (
+        <ErrorBoundary fallbackTitle="Kendala Memuat Panel Admin">
+          <AdminPanel />
+        </ErrorBoundary>
+      );
     case 'TEACHER':
-      return <TeacherPanel />;
+      return (
+        <ErrorBoundary fallbackTitle="Kendala Memuat Panel Guru">
+          <TeacherPanel />
+        </ErrorBoundary>
+      );
     case 'STUDENT':
-      return <StudentPanel />;
+      return (
+        <ErrorBoundary fallbackTitle="Kendala Memuat Panel Siswa">
+          <StudentPanel />
+        </ErrorBoundary>
+      );
     default:
       return <LandingPage />;
   }
@@ -48,8 +60,10 @@ function ActivePortal() {
 
 export default function App() {
   return (
-    <DbProvider>
-      <ActivePortal />
-    </DbProvider>
+    <ErrorBoundary fallbackTitle="Terjadi Kendala Memuat Aplikasi">
+      <DbProvider>
+        <ActivePortal />
+      </DbProvider>
+    </ErrorBoundary>
   );
 }

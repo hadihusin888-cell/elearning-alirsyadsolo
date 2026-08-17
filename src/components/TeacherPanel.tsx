@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDb } from '../context/DbContext';
 import { Material, Assignment, Grade, Class } from '../types';
+import ErrorBoundary from './ErrorBoundary';
 import { 
   LayoutDashboard, 
   BookOpen, 
@@ -25,6 +26,17 @@ import {
   Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+const formatDateSafe = (val?: string | null, options?: Intl.DateTimeFormatOptions): string => {
+  if (!val) return '-';
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toLocaleDateString('id-ID', options || { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return String(val);
+  }
+};
 
 const getFeedbackByScore = (val: number): string => {
   if (val >= 91) return 'Sangat baik, menguasai materi dan mampu menerapkannya secara mandiri.';
@@ -964,13 +976,13 @@ export default function TeacherPanel() {
               <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-xs lg:col-span-5 space-y-4">
                 <h4 className="font-bold text-slate-900 border-b border-slate-100 pb-3">Subjek Beban Pengajaran Anda</h4>
                 <div className="space-y-3">
-                  {teacherSubjects.map((alloc, idx) => {
+                  {(teacherSubjects || []).map((alloc, idx) => {
                     const sub = subjects.find(s => s.id === alloc.subjectId);
                     return (
                       <div key={idx} className="flex flex-col gap-1 border-l-2 border-teal-600 pl-3">
                         <p className="text-sm font-bold text-slate-900">{sub?.name || alloc.subjectId}</p>
                         <div className="flex gap-1.5 flex-wrap">
-                          {alloc.classIds.map(clsId => (
+                          {(alloc.classIds || []).map(clsId => (
                             <span key={clsId} className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded border">
                               {formatClassLabel(clsId)}
                             </span>
@@ -993,14 +1005,14 @@ export default function TeacherPanel() {
                   <p className="text-xs text-slate-400 italic text-center py-6">Semua pengumpulan tugas terkoreksi habis! Bagus sekali!</p>
                 ) : (
                   <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                    {grades.filter(g => teacherAssignments.some(a => a.id === g.assignmentId) && g.status === 'SUBMITTED').map(g => {
+                    {(grades || []).filter(g => teacherAssignments.some(a => a.id === g.assignmentId) && g.status === 'SUBMITTED').map(g => {
                       const asg = teacherAssignments.find(a => a.id === g.assignmentId);
                       const std = students.find(s => s.id === g.studentId);
                       return (
                         <div key={g.id} className="py-3 flex items-center justify-between gap-3 text-xs">
                           <div>
                             <p className="font-bold text-slate-900 truncate max-w-xs">{std?.name || g.studentId}</p>
-                            <p className="text-[10px] text-slate-400">{asg?.title} • {formatClassLabel(g.classId)}</p>
+                            <p className="text-[10px] text-slate-400">{asg?.title} • {formatClassLabel(g.classId || std?.classId || '')}</p>
                           </div>
                           <button
                             onClick={() => { setActiveTab('nilai'); setSelectedAsgFilter(g.assignmentId); }}
@@ -1107,7 +1119,7 @@ export default function TeacherPanel() {
                                       )}
                                     </div>
                                     <span className="text-[10px] text-slate-400 font-mono font-bold tracking-tight inline-flex items-center gap-1 shrink-0 pt-0.5">
-                                      <Calendar className="w-3.5 h-3.5 text-slate-300" /> {new Date(m.createdAt).toLocaleDateString('id-ID')}
+                                      <Calendar className="w-3.5 h-3.5 text-slate-300" /> {formatDateSafe(m.createdAt)}
                                     </span>
                                   </div>
                                   <h4 className="font-serif-heading font-extrabold text-slate-900 text-sm tracking-tight leading-snug text-left">{m.title}</h4>
