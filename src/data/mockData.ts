@@ -4,7 +4,7 @@ export const INITIAL_CLASSES: Class[] = [
   { id: '7A', name: 'Kelas 7A' },
   { id: '7B', name: 'Kelas 7B' },
   { id: '8A', name: 'Kelas 8A' },
-  { id: '8B', name: 'Kelas 8B' },
+  { id: '8B', name: 'Kelas 8B Putra' },
   { id: '9A', name: 'Kelas 9A' },
   { id: '9B', name: 'Kelas 9B' }
 ];

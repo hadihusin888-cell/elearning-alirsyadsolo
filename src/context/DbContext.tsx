@@ -7,8 +7,17 @@ import {
   Material, 
   Assignment, 
   Grade, 
-  SessionUser,
+  SessionUser, 
 } from '../types.ts';
+import { 
+  INITIAL_CLASSES, 
+  INITIAL_SUBJECTS, 
+  INITIAL_TEACHERS, 
+  INITIAL_STUDENTS, 
+  INITIAL_MATERIALS, 
+  INITIAL_ASSIGNMENTS, 
+  INITIAL_GRADES 
+} from '../data/mockData.ts';
 import { db } from '../firebase.ts';
 import { 
   collection, 
@@ -125,14 +134,44 @@ interface DbContextType {
 
 const DbContext = createContext<DbContextType | undefined>(undefined);
 
+const sanitizeClassList = (rawList: Class[]): Class[] => {
+  if (!rawList || rawList.length === 0) return INITIAL_CLASSES;
+  const processed = rawList.map(c => {
+    const rawId = c.id || '';
+    const rawName = c.name || '';
+    if (
+      rawId === '8B_PUTRI' ||
+      rawId === '8B_Putri' ||
+      rawName.includes('8B_PUTRI') ||
+      rawName.includes('8B Putri') ||
+      rawName.toLowerCase() === 'kelas 8b' ||
+      rawName === '8B' ||
+      rawId === '8B'
+    ) {
+      return { id: rawId === '8B_PUTRI' || rawId === '8B_Putri' ? '8B' : rawId, name: 'Kelas 8B Putra' };
+    }
+    return c;
+  });
+
+  const uniqueMap = new Map<string, Class>();
+  processed.forEach(c => uniqueMap.set(c.id, c));
+  
+  // Make sure 8B is present
+  if (!uniqueMap.has('8B') && !Array.from(uniqueMap.values()).some(c => c.name === 'Kelas 8B Putra')) {
+    uniqueMap.set('8B', { id: '8B', name: 'Kelas 8B Putra' });
+  }
+
+  return Array.from(uniqueMap.values());
+};
+
 export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [classes, setClasses] = useState<Class[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [grades, setGrades] = useState<Grade[]>([]);
+  const [classes, setClasses] = useState<Class[]>(INITIAL_CLASSES);
+  const [subjects, setSubjects] = useState<Subject[]>(INITIAL_SUBJECTS);
+  const [teachers, setTeachers] = useState<Teacher[]>(INITIAL_TEACHERS);
+  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
+  const [materials, setMaterials] = useState<Material[]>(INITIAL_MATERIALS);
+  const [assignments, setAssignments] = useState<Assignment[]>(INITIAL_ASSIGNMENTS);
+  const [grades, setGrades] = useState<Grade[]>(INITIAL_GRADES);
   const [adminPassword, setAdminPassword] = useState<string>('admin123');
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -151,7 +190,12 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     const storedAdminPassword = localStorage.getItem('smp_admin_pwd');
     const storedUser = localStorage.getItem('smp_current_user');
 
-    if (storedClasses) setClasses(JSON.parse(storedClasses));
+    if (storedClasses) {
+      const parsed = JSON.parse(storedClasses);
+      const sanitized = sanitizeClassList(parsed);
+      setClasses(sanitized);
+      localStorage.setItem('smp_classes', JSON.stringify(sanitized));
+    }
     if (storedSubjects) setSubjects(JSON.parse(storedSubjects));
     if (storedTeachers) setTeachers(JSON.parse(storedTeachers));
     if (storedStudents) setStudents(JSON.parse(storedStudents));
@@ -247,8 +291,9 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       snapshot.forEach(doc => {
         list.push({ id: doc.id, ...doc.data() } as Class);
       });
-      setClasses(list);
-      localStorage.setItem('smp_classes', JSON.stringify(list));
+      const sanitized = sanitizeClassList(list);
+      setClasses(sanitized);
+      localStorage.setItem('smp_classes', JSON.stringify(sanitized));
       checkIsLoadComplete();
     }, (error) => {
       console.warn("Firestore listener 'classes' blocked or offline:", error);
@@ -450,6 +495,131 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     };
   }, [db, currentUser]);
 
+  // Synchronize and migrate any 8B_PUTRI records to Kelas 8B Putra across all entities & Firestore
+  useEffect(() => {
+    // 1. Ensure 8B exists and 8B_PUTRI is cleaned up in classes
+    const needsClassFix = classes.some(c => 
+      c.id === '8B_PUTRI' || 
+      c.id === '8B_Putri' || 
+      c.name.includes('8B_PUTRI') || 
+      c.name.includes('8B Putri') ||
+      (c.id === '8B' && c.name !== 'Kelas 8B Putra')
+    );
+
+    if (needsClassFix) {
+      const sanitized = sanitizeClassList(classes);
+      setClasses(sanitized);
+      localStorage.setItem('smp_classes', JSON.stringify(sanitized));
+
+      if (db) {
+        setDoc(doc(db, 'classes', '8B'), { id: '8B', name: 'Kelas 8B Putra' }, { merge: true }).catch(() => {});
+        deleteDoc(doc(db, 'classes', '8B_PUTRI')).catch(() => {});
+        deleteDoc(doc(db, 'classes', '8B_Putri')).catch(() => {});
+      }
+    }
+
+    // 2. Synchronize teacher class assignments
+    const teachersNeedUpdate = teachers.some(t => 
+      (t.subjectsTaught || []).some(st => 
+        (st.classIds || []).some(cid => cid === '8B_PUTRI' || cid === '8B_Putri' || cid === '8B Putri' || cid === 'Kelas 8B_PUTRI')
+      )
+    );
+    if (teachersNeedUpdate) {
+      const updatedTeachers = teachers.map(t => ({
+        ...t,
+        subjectsTaught: (t.subjectsTaught || []).map(st => ({
+          ...st,
+          classIds: (st.classIds || []).map(cid => (cid === '8B_PUTRI' || cid === '8B_Putri' || cid === '8B Putri' || cid === 'Kelas 8B_PUTRI') ? '8B' : cid)
+        }))
+      }));
+      setTeachers(updatedTeachers);
+      localStorage.setItem('smp_teachers', JSON.stringify(updatedTeachers));
+      if (db) {
+        updatedTeachers.forEach(t => {
+          setDoc(doc(db, 'teachers', t.id), t, { merge: true }).catch(() => {});
+        });
+      }
+    }
+
+    // 3. Synchronize students
+    const studentsNeedUpdate = students.some(s => s.classId === '8B_PUTRI' || s.classId === '8B_Putri' || s.classId === '8B Putri' || s.classId === 'Kelas 8B_PUTRI');
+    if (studentsNeedUpdate) {
+      const updatedStudents = students.map(s => 
+        (s.classId === '8B_PUTRI' || s.classId === '8B_Putri' || s.classId === '8B Putri' || s.classId === 'Kelas 8B_PUTRI') 
+          ? { ...s, classId: '8B' } 
+          : s
+      );
+      setStudents(updatedStudents);
+      localStorage.setItem('smp_students', JSON.stringify(updatedStudents));
+      if (db) {
+        updatedStudents.filter(s => s.classId === '8B').forEach(s => {
+          setDoc(doc(db, 'students', s.id), s, { merge: true }).catch(() => {});
+        });
+      }
+    }
+
+    // 4. Synchronize materials
+    const materialsNeedUpdate = materials.some(m => m.classId && (m.classId.includes('8B_PUTRI') || m.classId.includes('8B_Putri') || m.classId.includes('8B Putri')));
+    if (materialsNeedUpdate) {
+      const updatedMaterials = materials.map(m => {
+        if (m.classId && (m.classId.includes('8B_PUTRI') || m.classId.includes('8B_Putri') || m.classId.includes('8B Putri'))) {
+          const newClassId = m.classId.split(',').map(c => {
+            const t = c.trim();
+            return (t === '8B_PUTRI' || t === '8B_Putri' || t === '8B Putri' || t === 'Kelas 8B_PUTRI') ? '8B' : t;
+          }).join(', ');
+          return { ...m, classId: newClassId };
+        }
+        return m;
+      });
+      setMaterials(updatedMaterials);
+      localStorage.setItem('smp_materials', JSON.stringify(updatedMaterials));
+      if (db) {
+        updatedMaterials.forEach(m => {
+          setDoc(doc(db, 'materials', m.id), m, { merge: true }).catch(() => {});
+        });
+      }
+    }
+
+    // 5. Synchronize assignments
+    const asgNeedUpdate = assignments.some(a => a.classId && (a.classId.includes('8B_PUTRI') || a.classId.includes('8B_Putri') || a.classId.includes('8B Putri')));
+    if (asgNeedUpdate) {
+      const updatedAssignments = assignments.map(a => {
+        if (a.classId && (a.classId.includes('8B_PUTRI') || a.classId.includes('8B_Putri') || a.classId.includes('8B Putri'))) {
+          const newClassId = a.classId.split(',').map(c => {
+            const t = c.trim();
+            return (t === '8B_PUTRI' || t === '8B_Putri' || t === '8B Putri' || t === 'Kelas 8B_PUTRI') ? '8B' : t;
+          }).join(', ');
+          return { ...a, classId: newClassId };
+        }
+        return a;
+      });
+      setAssignments(updatedAssignments);
+      localStorage.setItem('smp_assignments', JSON.stringify(updatedAssignments));
+      if (db) {
+        updatedAssignments.forEach(a => {
+          setDoc(doc(db, 'assignments', a.id), a, { merge: true }).catch(() => {});
+        });
+      }
+    }
+
+    // 6. Synchronize grades
+    const gradesNeedUpdate = grades.some(g => g.classId === '8B_PUTRI' || g.classId === '8B_Putri' || g.classId === '8B Putri' || g.classId === 'Kelas 8B_PUTRI');
+    if (gradesNeedUpdate) {
+      const updatedGrades = grades.map(g => 
+        (g.classId === '8B_PUTRI' || g.classId === '8B_Putri' || g.classId === '8B Putri' || g.classId === 'Kelas 8B_PUTRI') 
+          ? { ...g, classId: '8B' } 
+          : g
+      );
+      setGrades(updatedGrades);
+      localStorage.setItem('smp_grades', JSON.stringify(updatedGrades));
+      if (db) {
+        updatedGrades.filter(g => g.classId === '8B').forEach(g => {
+          setDoc(doc(db, 'grades', g.id), g, { merge: true }).catch(() => {});
+        });
+      }
+    }
+  }, [classes, teachers, students, materials, assignments, grades, db]);
+
   // Handle manual / focus refresh pulls to synchronize state securely
   const refreshData = async () => {
     if (!db) return;
@@ -532,8 +702,9 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
       const clsList: Class[] = [];
       clsSnap.forEach(doc => clsList.push({ id: doc.id, ...(doc.data() as any) } as Class));
-      setClasses(clsList);
-      localStorage.setItem('smp_classes', JSON.stringify(clsList));
+      const sanitizedCls = sanitizeClassList(clsList);
+      setClasses(sanitizedCls);
+      localStorage.setItem('smp_classes', JSON.stringify(sanitizedCls));
 
       const subList: Subject[] = [];
       subSnap.forEach(doc => subList.push({ id: doc.id, ...(doc.data() as any) } as Subject));

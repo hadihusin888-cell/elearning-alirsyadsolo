@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useDb } from '../context/DbContext';
 import { Material, Assignment, Grade } from '../types';
 import { 
@@ -48,12 +48,31 @@ export default function TeacherPanel() {
 
   const [activeTab, setActiveTab] = useState<'dash' | 'materi' | 'tugas' | 'nilai' | 'setting'>('dash');
 
+  // Helper to format class label cleanly and handle 8B_PUTRI -> 8B Putra sync
+  const formatClassLabel = (idOrName: string) => {
+    if (!idOrName) return '';
+    const trimmed = idOrName.trim();
+    if (trimmed === '8B_PUTRI' || trimmed === '8B_Putri' || trimmed === '8B Putri' || trimmed === 'Kelas 8B_PUTRI') {
+      return 'Kelas 8B Putra';
+    }
+    const found = classes.find(c => c.id === trimmed || c.name === trimmed);
+    const name = found ? found.name : trimmed;
+    if (!name) return '';
+    if (name.toLowerCase().startsWith('kelas ')) {
+      return name;
+    }
+    return `Kelas ${name}`;
+  };
+
   // Identify teacher
   const currentTeacher = teachers.find(t => t.id === currentUser?.id);
   const teacherSubjects = currentTeacher?.subjectsTaught || [];
 
-  // Flatten active classes & subjects this teacher actually teaches
-  const activeClassIds = Array.from(new Set(teacherSubjects.flatMap(s => s.classIds)));
+  // Flatten active classes & subjects this teacher actually teaches (normalize 8B_PUTRI -> 8B)
+  const rawClassIds = Array.from(new Set(teacherSubjects.flatMap(s => s.classIds || [])));
+  const activeClassIds = Array.from(new Set(rawClassIds.map(cid => 
+    (cid === '8B_PUTRI' || cid === '8B_Putri' || cid === '8B Putri' || cid === 'Kelas 8B_PUTRI') ? '8B' : cid
+  )));
   const activeSubjectIds = Array.from(new Set(teacherSubjects.map(s => s.subjectId)));
 
   // States
@@ -372,9 +391,17 @@ export default function TeacherPanel() {
       const std = students.find(s => s.id === g.studentId);
       const stdClass = (std?.classId || '').toLowerCase();
 
-      const matchesClass = gClass === targetId || gClass === targetName ||
-                           stdClass === targetId || stdClass === targetName ||
-                           gClass.includes(targetName) || stdClass.includes(targetName);
+      const is8BTarget = targetId === '8b' || targetId === '8b_putri' || targetName.includes('8b');
+
+      let matchesClass = gClass === targetId || gClass === targetName ||
+                         stdClass === targetId || stdClass === targetName ||
+                         gClass.includes(targetName) || stdClass.includes(targetName);
+
+      if (is8BTarget && !matchesClass) {
+        matchesClass = gClass === '8b' || gClass === '8b_putri' || gClass.includes('8b') ||
+                       stdClass === '8b' || stdClass === '8b_putri' || stdClass.includes('8b');
+      }
+
       if (!matchesClass) return false;
     }
 
@@ -394,6 +421,246 @@ export default function TeacherPanel() {
 
     return true;
   });
+
+  // Derived Print Rows that strictly follow the filtered data (currentGrades)
+  const printRows = useMemo(() => {
+    return currentGrades
+      .map((g, idx) => {
+        const std = students.find(s => s.id === g.studentId);
+        const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+        let statusText = "Belum Dinilai";
+        if (g.status === 'GRADED') statusText = "Sudah Dinilai";
+        else if (g.status === 'RESET') statusText = "Minta Ulang";
+
+        return {
+          id: g.id || `row-${idx}`,
+          nis: std?.nis || g.studentId || '-',
+          studentName: std?.name || g.studentId,
+          taskTitle: asg?.title || 'Tugas Terhapus',
+          statusText,
+          gradeValue: g.grade !== undefined && g.grade !== null ? g.grade : '-',
+          feedbackText: g.feedback || '-'
+        };
+      })
+      .sort((a, b) => a.studentName.localeCompare(b.studentName));
+  }, [currentGrades, students, teacherAssignments]);
+
+  const printClassName = selectedClassFilter 
+    ? formatClassLabel(selectedClassFilter) 
+    : 'Semua Kelas';
+
+  const selectedAsgObj = teacherAssignments.find(a => a.id === selectedAsgFilter);
+  const printTaskTitle = selectedAsgObj ? selectedAsgObj.title : 'Semua Tugas Kelas Ini';
+
+  const asgSubjectObj = subjects.find(s => s.id === selectedAsgObj?.subjectId);
+  const teacherSubjectObj = subjects.find(s => s.id === activeSubjectIds[0]);
+  const printSubjectName = asgSubjectObj?.name || teacherSubjectObj?.name || (currentUser?.meta?.subject || 'Semua Mata Pelajaran');
+
+  const printTeacherName = currentTeacher?.name || currentUser?.name || '-';
+  const printTeacherNip = currentTeacher?.id || currentUser?.id || '-';
+
+  const statusFilterLabel = selectedStatusFilter === 'UNGRADED'
+    ? 'Belum Dinilai'
+    : selectedStatusFilter === 'GRADED'
+    ? 'Sudah Dinilai'
+    : 'Semua Status';
+
+  // Direct robust print generator (avoids blank pages from iframe / container constraints)
+  const handleDirectPrint = () => {
+    const printDate = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const tableRowsHtml = printRows.length === 0
+      ? `<tr><td colspan="${selectedAsgFilter ? 6 : 7}" style="text-align: center; padding: 24px; color: #64748b; font-style: italic;">Tidak ada data siswa yang sesuai dengan filter saat ini.</td></tr>`
+      : printRows.map((row, idx) => `
+        <tr style="border-bottom: 1px solid #cbd5e1; ${idx % 2 === 1 ? 'background-color: #f8fafc;' : ''}">
+          <td style="padding: 7px 8px; text-align: center; border-right: 1px solid #cbd5e1; font-family: monospace; font-size: 11px;">${idx + 1}</td>
+          <td style="padding: 7px 8px; text-align: center; border-right: 1px solid #cbd5e1; font-family: monospace; font-weight: bold; font-size: 11px;">${row.nis}</td>
+          <td style="padding: 7px 8px; text-align: left; border-right: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 11px;">${row.studentName}</td>
+          ${!selectedAsgFilter ? `<td style="padding: 7px 8px; text-align: left; border-right: 1px solid #cbd5e1; color: #1e293b; font-size: 11px;">${row.taskTitle}</td>` : ''}
+          <td style="padding: 7px 8px; text-align: center; border-right: 1px solid #cbd5e1; font-size: 10.5px; font-weight: 600;">${row.statusText}</td>
+          <td style="padding: 7px 8px; text-align: center; border-right: 1px solid #cbd5e1; font-family: monospace; font-size: 13px; font-weight: 800; color: #0f766e;">${row.gradeValue}</td>
+          <td style="padding: 7px 8px; text-align: left; font-size: 10.5px; color: #475569; font-style: italic;">${row.feedbackText}</td>
+        </tr>
+      `).join('');
+
+    const htmlDoc = `
+      <!DOCTYPE html>
+      <html lang="id">
+      <head>
+        <meta charset="utf-8">
+        <title>Rekap Nilai Siswa - ${printClassName}</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 12mm 15mm;
+          }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-size: 11.5px;
+            line-height: 1.4;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .kop {
+            text-align: center;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 10px;
+            margin-bottom: 14px;
+          }
+          .kop h1 {
+            font-size: 15px;
+            font-weight: 900;
+            margin: 0 0 3px 0;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+          }
+          .kop h2 {
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #0f766e;
+            margin: 0;
+            text-transform: uppercase;
+          }
+          .meta-box {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 14px;
+            font-size: 11px;
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            padding: 10px 14px;
+            border-radius: 6px;
+          }
+          .meta-col {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+          }
+          th {
+            background-color: #f1f5f9;
+            border: 1px solid #64748b;
+            padding: 8px 6px;
+            font-weight: 800;
+            text-transform: uppercase;
+            font-size: 10px;
+            color: #1e293b;
+          }
+          td {
+            border: 1px solid #cbd5e1;
+          }
+          .sig-wrap {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 24px;
+            page-break-inside: avoid;
+          }
+          .sig-box {
+            text-align: center;
+            width: 220px;
+            font-size: 11.5px;
+          }
+          .sig-space {
+            height: 55px;
+          }
+          .sig-name {
+            font-weight: bold;
+            text-decoration: underline;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="kop">
+          <h1>DAFTAR NILAI DAN KETUNTASAN BELAJAR SISWA</h1>
+          <h2>SMP AL IRSYAD SURAKARTA</h2>
+        </div>
+
+        <div class="meta-box">
+          <div class="meta-col">
+            <div>Kelas / Jenjang: <b>${printClassName}</b></div>
+            <div>Mata Pelajaran: <b>${printSubjectName}</b></div>
+            <div>Nama Latihan / Tugas: <b>${printTaskTitle}</b></div>
+          </div>
+          <div class="meta-col">
+            <div>Status Saringan: <b>${statusFilterLabel}</b></div>
+            <div>Guru Pengampu: <b>${printTeacherName}</b></div>
+            <div>Total Data: <b>${printRows.length} Siswa</b></div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 32px; text-align: center;">No</th>
+              <th style="width: 80px; text-align: center;">NIS</th>
+              <th style="text-align: left;">Nama Lengkap Murid</th>
+              ${!selectedAsgFilter ? `<th style="text-align: left;">Judul Tugas</th>` : ''}
+              <th style="width: 90px; text-align: center;">Status</th>
+              <th style="width: 50px; text-align: center;">Nilai</th>
+              <th style="text-align: left;">Catatan / Ulasan</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+
+        <div class="sig-wrap">
+          <div class="sig-box">
+            <div>Surakarta, ${printDate}</div>
+            <div style="margin-top: 2px;">Guru Pengampu,</div>
+            <div class="sig-space"></div>
+            <div class="sig-name">${printTeacherName}</div>
+            <div style="font-size: 9.5px; color: #64748b; margin-top: 2px;">NIP/NIK: ${printTeacherNip}</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(htmlDoc);
+      doc.close();
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 2000);
+      }, 250);
+    } else {
+      window.print();
+    }
+  };
 
   // Calculate statistics
   const ungradedCount = grades.filter(g => 
@@ -717,7 +984,7 @@ export default function TeacherPanel() {
                                     <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
                                       {m.classId ? m.classId.split(',').map(c => c.trim()).filter(Boolean).map(clsName => (
                                         <span key={clsName} className="bg-teal-50/90 text-teal-800 text-[10px] font-black px-2.5 py-0.5 rounded-md border border-teal-200/70 tracking-wide uppercase inline-block">
-                                          Kelas {clsName}
+                                          {formatClassLabel(clsName)}
                                         </span>
                                       )) : (
                                         <span className="bg-teal-50/90 text-teal-800 text-[10px] font-black px-2.5 py-0.5 rounded-md border border-teal-200/70 tracking-wide uppercase inline-block">
@@ -867,7 +1134,7 @@ export default function TeacherPanel() {
                                     <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
                                       {a.classId ? a.classId.split(',').map(c => c.trim()).filter(Boolean).map(clsName => (
                                         <span key={clsName} className="bg-slate-100/90 text-slate-700 text-[10px] font-black px-2.5 py-0.5 rounded-md border border-slate-205 tracking-wide uppercase inline-block">
-                                          Kelas {clsName}
+                                          {formatClassLabel(clsName)}
                                         </span>
                                       )) : (
                                         <span className="bg-slate-100/90 text-slate-700 text-[10px] font-black px-2.5 py-0.5 rounded-md border border-slate-205 tracking-wide uppercase inline-block">
@@ -986,7 +1253,7 @@ export default function TeacherPanel() {
                       {classes
                         .filter(c => activeClassIds.includes(c.id) || activeClassIds.includes(c.name) || teacherAssignments.some(a => (a.classId || '').includes(c.name) || (a.classId || '').includes(c.id)))
                         .map(c => (
-                          <option key={c.id} value={c.id}>Kelas {c.name}</option>
+                          <option key={c.id} value={c.id}>{formatClassLabel(c.name)}</option>
                         ))}
                     </select>
                   </div>
@@ -1028,18 +1295,23 @@ export default function TeacherPanel() {
                 </div>
 
                 {/* Info counter & Print action */}
-                <div className="flex items-center gap-3 self-end lg:self-center shrink-0">
+                <div className="flex flex-wrap items-center gap-3 self-end lg:self-center shrink-0">
                   <span className="text-xs font-semibold text-slate-500">
                     Ditemukan: <b className="text-slate-900">{currentGrades.length}</b> data
                   </span>
-                  {selectedClassFilter && (
-                    <button
-                      onClick={() => setShowPrintModal(true)}
-                      className="inline-flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-3xs cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5" /> Cetak Rekap Nilai
-                    </button>
-                  )}
+                  <button
+                    disabled={!selectedClassFilter || currentGrades.length === 0}
+                    onClick={() => setShowPrintModal(true)}
+                    className={`inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl transition shadow-3xs ${
+                      !selectedClassFilter || currentGrades.length === 0
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer'
+                    }`}
+                    title={!selectedClassFilter ? 'Pilih kelas terlebih dahulu untuk mencetak' : 'Cetak rekap data yang tampil sesuai filter'}
+                  >
+                    <Printer className="w-3.5 h-3.5" /> 
+                    <span>Cetak Rekap ({currentGrades.length} Siswa)</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1078,12 +1350,12 @@ export default function TeacherPanel() {
                     <tbody className="divide-y divide-slate-100 text-slate-700">
                       {currentGrades.map(g => {
                         const std = students.find(s => s.id === g.studentId);
-                        const asg = teacherAssignments.find(a => a.id === g.assignmentId);
+                        const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
                         return (
                           <tr key={g.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4 pl-6">
                               <p className="font-bold text-slate-900 text-left">{std?.name || g.studentId}</p>
-                              <p className="text-[10px] text-slate-400">NIS: {std?.nis} • Kelas {g.classId}</p>
+                              <p className="text-[10px] text-slate-400">NIS: {std?.nis || '-'} • {formatClassLabel(g.classId || std?.classId || '')}</p>
                             </td>
                             <td className="p-4 font-medium text-slate-800 text-left truncate max-w-xs">{asg?.title || 'Tugas Terhapus'}</td>
                             <td className="p-4 text-left">
@@ -1718,253 +1990,129 @@ export default function TeacherPanel() {
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
                 <div className="flex items-center gap-2">
                   <Printer className="w-5 h-5 text-teal-650" />
-                  <h3 className="font-extrabold text-slate-900 text-sm tracking-tight">Pratinjau Cetak Daftar Nilai</h3>
+                  <h3 className="font-extrabold text-slate-900 text-sm tracking-tight">Pratinjau Cetak Daftar Nilai (Sesuai Saringan)</h3>
                 </div>
                 <button
                   onClick={() => setShowPrintModal(false)}
-                  className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-700 transition"
+                  className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-700 transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Scrollable Preview Area */}
-              <div className="p-8 overflow-y-auto flex-1 bg-slate-50/50">
+              <div className="p-6 md:p-8 overflow-y-auto flex-1 bg-slate-50/50">
                 {/* Print area wrapper */}
                 <div 
                   id="print-area" 
-                  className="bg-white shadow-xs p-8 rounded-xl border border-slate-200/60 max-w-3xl mx-auto space-y-6 font-sans text-slate-800"
+                  className="bg-white shadow-xs p-6 md:p-8 rounded-xl border border-slate-200/60 max-w-3xl mx-auto space-y-6 font-sans text-slate-800"
                 >
-                  {/* Style Override for Printer Target */}
-                  <style dangerouslySetInnerHTML={{
-                    __html: `
-                      @media print {
-                        html, body {
-                          background: #ffffff !important;
-                          color: #000000 !important;
-                          height: auto !important;
-                          overflow: visible !important;
-                          margin: 0 !important;
-                          padding: 0 !important;
-                        }
-
-                        /* Hide everything by default using visibility */
-                        body * {
-                          visibility: hidden !important;
-                        }
-
-                        /* Show print modal containers and print area */
-                        #print-modal-backdrop,
-                        #print-modal-backdrop *,
-                        #print-area,
-                        #print-area * {
-                          visibility: visible !important;
-                        }
-
-                        #print-modal-backdrop {
-                          position: absolute !important;
-                          left: 0 !important;
-                          top: 0 !important;
-                          width: 100% !important;
-                          height: auto !important;
-                          background: transparent !important;
-                          padding: 0 !important;
-                          margin: 0 !important;
-                          overflow: visible !important;
-                          display: block !important;
-                          box-shadow: none !important;
-                          border: none !important;
-                        }
-
-                        #print-area {
-                          position: absolute !important;
-                          left: 0 !important;
-                          top: 0 !important;
-                          width: 100% !important;
-                          max-width: 100% !important;
-                          margin: 0 !important;
-                          padding: 15px !important;
-                          border: none !important;
-                          box-shadow: none !important;
-                          background: white !important;
-                          color: black !important;
-                          -webkit-print-color-adjust: exact !important;
-                          print-color-adjust: exact !important;
-                        }
-
-                        .no-print {
-                          display: none !important;
-                        }
-
-                        #print-area table {
-                          width: 100% !important;
-                          border-collapse: collapse !important;
-                        }
-
-                        #print-area th, #print-area td {
-                          border: 1px solid #475569 !important;
-                          padding: 6px 8px !important;
-                        }
-                      }
-                    `
-                  }} />
-
                   {/* KOP LAPORAN */}
-                  <div className="text-center space-y-2 border-b-2 border-slate-900 pb-5">
-                    <h2 className="text-lg font-black tracking-widest text-slate-900 uppercase">DAFTAR NILAI DAN KETUNTASAN BELAJAR SISWA</h2>
+                  <div className="text-center space-y-1.5 border-b-2 border-slate-900 pb-4">
+                    <h2 className="text-base md:text-lg font-black tracking-wider text-slate-900 uppercase">DAFTAR NILAI DAN KETUNTASAN BELAJAR SISWA</h2>
                     <p className="text-2xs text-teal-700 tracking-wider font-bold">SMP AL IRSYAD SURAKARTA</p>
                   </div>
 
                   {/* METADATA INFORMASI */}
-                  {(() => {
-                    const selectedClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
-                    const printClassName = selectedClassObj ? `Kelas ${selectedClassObj.name}` : (selectedClassFilter || 'Semua Kelas');
-
-                    const asgObj = teacherAssignments.find(a => a.id === selectedAsgFilter);
-                    const printTaskTitle = asgObj ? asgObj.title : 'Semua Tugas';
-
-                    const subObj = subjects.find(s => s.id === asgObj?.subjectId);
-                    const printSubject = subObj?.name || (currentUser?.meta?.subject || 'Semua Mata Pelajaran');
-
-                    const teacherObj = teachers.find(t => t.id === (asgObj?.teacherId || currentUser?.id));
-                    const printTeacherName = teacherObj?.name || currentUser?.name || '-';
-
-                    const statusFilterLabel = selectedStatusFilter === 'UNGRADED'
-                      ? 'Belum Dinilai'
-                      : selectedStatusFilter === 'GRADED'
-                      ? 'Sudah Dinilai'
-                      : 'Semua Status';
-
-                    // Data list for report:
-                    // If a specific assignment is selected and status filter is ALL, show all students in class
-                    // Otherwise, render currentGrades (which respects selectedClassFilter, selectedAsgFilter, selectedStatusFilter)
-                    type PrintRow = {
-                      id: string;
-                      nis: string;
-                      studentName: string;
-                      taskTitle: string;
-                      statusText: string;
-                      gradeValue: string | number;
-                      feedbackText: string;
-                    };
-
-                    const printRows = currentGrades
-                      .map((g) => {
-                        const std = students.find(s => s.id === g.studentId);
-                        const asg = teacherAssignments.find(a => a.id === g.assignmentId);
-                        let statusText = "Belum Dinilai";
-                        if (g.status === 'GRADED') statusText = "Telah Dinilai";
-                        else if (g.status === 'RESET') statusText = "Minta Ulang";
-
-                        return {
-                          id: g.id,
-                          nis: std?.nis || '-',
-                          studentName: std?.name || g.studentId,
-                          taskTitle: asg?.title || 'Tugas Terhapus',
-                          statusText,
-                          gradeValue: g.grade !== undefined ? g.grade : '-',
-                          feedbackText: g.feedback || '-'
-                        };
-                      })
-                      .sort((a, b) => a.studentName.localeCompare(b.studentName));
-
-                    return (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4 text-xs">
-                          <div className="space-y-1.5 text-left">
-                            <p>Kelas / Jenjang : <b className="text-slate-900">{printClassName}</b></p>
-                            <p>Mata Pelajaran : <b className="text-slate-900">{printSubject}</b></p>
-                            <p>Nama Latihan/Tugas : <b className="text-slate-900">{printTaskTitle}</b></p>
-                          </div>
-                          <div className="space-y-1.5 text-left md:pl-8">
-                            <p>Status Saringan : <b className="text-slate-900">{statusFilterLabel}</b></p>
-                            <p>Guru Pengampu : <b className="text-slate-900">{printTeacherName}</b></p>
-                            <p>Total Data : <b className="text-slate-900">{printRows.length} Siswa</b></p>
-                          </div>
-                        </div>
-
-                        {/* TABEL DAFTAR SISWA */}
-                        <div className="overflow-hidden border border-slate-350 rounded-lg">
-                          <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                              <tr className="bg-slate-100 border-b border-slate-350 text-slate-650 font-extrabold uppercase text-[10px]">
-                                <th className="p-3 border-r border-slate-300 w-10 text-center">No</th>
-                                <th className="p-3 border-r border-slate-300 w-28 text-center">NIS</th>
-                                <th className="p-3 border-r border-slate-300">Nama Lengkap Murid</th>
-                                {!selectedAsgFilter && (
-                                  <th className="p-3 border-r border-slate-300">Judul Tugas</th>
-                                )}
-                                <th className="p-3 border-r border-slate-300 w-28 text-center">Status</th>
-                                <th className="p-3 border-r border-slate-300 w-20 text-center">Nilai</th>
-                                <th className="p-3">Catatan / Ulasan</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-300 text-slate-700">
-                              {printRows.length === 0 ? (
-                                <tr>
-                                  <td colSpan={selectedAsgFilter ? 6 : 7} className="p-4 text-center text-slate-400 italic">
-                                    Tidak ada data siswa yang sesuai dengan filter saat ini.
-                                  </td>
-                                </tr>
-                              ) : (
-                                printRows.map((row, idx) => (
-                                  <tr key={row.id || idx} className="hover:bg-slate-50/50">
-                                    <td className="p-2.5 border-r border-slate-300 text-center font-mono">{idx + 1}</td>
-                                    <td className="p-2.5 border-r border-slate-300 font-mono font-bold text-center">{row.nis}</td>
-                                    <td className="p-2.5 border-r border-slate-300 font-bold text-slate-900">{row.studentName}</td>
-                                    {!selectedAsgFilter && (
-                                      <td className="p-2.5 border-r border-slate-300 text-slate-800">{row.taskTitle}</td>
-                                    )}
-                                    <td className="p-2.5 border-r border-slate-300 text-center font-semibold text-[10px]">
-                                      {row.statusText}
-                                    </td>
-                                    <td className="p-2.5 border-r border-slate-300 text-center font-mono font-black text-sm text-teal-700">
-                                      {row.gradeValue}
-                                    </td>
-                                    <td className="p-2.5 text-left text-[10.5px] italic text-slate-550">
-                                      {row.feedbackText}
-                                    </td>
-                                  </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* AREA TANDA TANGAN */}
-                        <div className="pt-8 flex justify-end">
-                          <div className="text-center space-y-16 text-xs w-52">
-                            <div>
-                              <p>Mengetahui,</p>
-                              <p className="font-semibold">Guru Pengampu</p>
-                            </div>
-                            <div className="space-y-0.5">
-                              <p className="font-bold underline">{printTeacherName}</p>
-                              <p className="text-[10px] text-slate-450">NIP/NIK: {teacherObj?.id || currentUser?.id || '-'}</p>
-                            </div>
-                          </div>
-                        </div>
-
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                      <div className="space-y-1.5 text-left">
+                        <p>Kelas / Jenjang : <b className="text-slate-900">{printClassName}</b></p>
+                        <p>Mata Pelajaran : <b className="text-slate-900">{printSubjectName}</b></p>
+                        <p>Nama Latihan/Tugas : <b className="text-slate-900">{printTaskTitle}</b></p>
                       </div>
-                    );
-                  })()}
+                      <div className="space-y-1.5 text-left">
+                        <p>Status Saringan : <b className="text-slate-900">{statusFilterLabel}</b></p>
+                        <p>Guru Pengampu : <b className="text-slate-900">{printTeacherName}</b></p>
+                        <p>Total Data Ditampilkan : <b className="text-teal-800 font-extrabold">{printRows.length} Siswa</b></p>
+                      </div>
+                    </div>
+
+                    {/* TABEL DAFTAR SISWA */}
+                    <div className="overflow-x-auto border border-slate-300 rounded-lg">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-300 text-slate-700 font-extrabold uppercase text-[10px]">
+                            <th className="p-2.5 border-r border-slate-300 w-10 text-center">No</th>
+                            <th className="p-2.5 border-r border-slate-300 w-24 text-center">NIS</th>
+                            <th className="p-2.5 border-r border-slate-300">Nama Lengkap Murid</th>
+                            {!selectedAsgFilter && (
+                              <th className="p-2.5 border-r border-slate-300">Judul Tugas</th>
+                            )}
+                            <th className="p-2.5 border-r border-slate-300 w-28 text-center">Status</th>
+                            <th className="p-2.5 border-r border-slate-300 w-20 text-center">Nilai</th>
+                            <th className="p-2.5">Catatan / Ulasan</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-slate-700">
+                          {printRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={selectedAsgFilter ? 6 : 7} className="p-6 text-center text-slate-400 italic">
+                                Tidak ada data siswa yang sesuai dengan saringan saat ini.
+                              </td>
+                            </tr>
+                          ) : (
+                            printRows.map((row, idx) => (
+                              <tr key={row.id || idx} className="hover:bg-slate-50/50">
+                                <td className="p-2.5 border-r border-slate-200 text-center font-mono">{idx + 1}</td>
+                                <td className="p-2.5 border-r border-slate-200 font-mono font-bold text-center">{row.nis}</td>
+                                <td className="p-2.5 border-r border-slate-200 font-bold text-slate-900">{row.studentName}</td>
+                                {!selectedAsgFilter && (
+                                  <td className="p-2.5 border-r border-slate-200 text-slate-800">{row.taskTitle}</td>
+                                )}
+                                <td className="p-2.5 border-r border-slate-200 text-center font-semibold text-[10px]">
+                                  {row.statusText}
+                                </td>
+                                <td className="p-2.5 border-r border-slate-200 text-center font-mono font-black text-sm text-teal-700">
+                                  {row.gradeValue}
+                                </td>
+                                <td className="p-2.5 text-left text-[10.5px] italic text-slate-550">
+                                  {row.feedbackText}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* AREA TANDA TANGAN */}
+                    <div className="pt-6 flex justify-end">
+                      <div className="text-center space-y-14 text-xs w-52">
+                        <div>
+                          <p>Surakarta, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                          <p className="font-semibold mt-1">Guru Pengampu,</p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <p className="font-bold underline text-slate-900">{printTeacherName}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">NIP/NIK: {printTeacherNip}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
                 </div>
               </div>
 
               {/* Action Footer */}
-              <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3 shrink-0">
-                <button
-                  onClick={() => setShowPrintModal(false)}
-                  className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs cursor-pointer hover:bg-slate-50 transition"
-                >
-                  Tutup
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-xs cursor-pointer transition shadow-xs hover:shadow-2xs flex items-center gap-1.5"
-                >
-                  <Printer className="w-4 h-4" /> Cetak via Browser
-                </button>
+              <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3 shrink-0">
+                <span className="text-xs text-slate-500 font-medium hidden sm:inline">
+                  Mencetak <b>{printRows.length} data</b> yang tampil sesuai filter aktif
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowPrintModal(false)}
+                    className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs cursor-pointer hover:bg-slate-50 transition"
+                  >
+                    Tutup
+                  </button>
+                  <button
+                    onClick={handleDirectPrint}
+                    className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-xs cursor-pointer transition shadow-xs hover:shadow-2xs flex items-center gap-1.5"
+                  >
+                    <Printer className="w-4 h-4" /> Cetak Rekap Dokumen
+                  </button>
+                </div>
               </div>
 
             </motion.div>
