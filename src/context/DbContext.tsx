@@ -136,32 +136,42 @@ const DbContext = createContext<DbContextType | undefined>(undefined);
 
 const sanitizeClassList = (rawList: Class[]): Class[] => {
   if (!rawList || rawList.length === 0) return INITIAL_CLASSES;
-  const processed = rawList.map(c => {
-    const rawId = c.id || '';
-    const rawName = c.name || '';
+  const uniqueMap = new Map<string, Class>();
+
+  rawList.forEach(c => {
+    const rawId = (c.id || '').trim();
+    const rawName = (c.name || '').trim();
+    const lowerId = rawId.toLowerCase();
+    const lowerName = rawName.toLowerCase();
+
     if (
-      rawId === '8B_PUTRI' ||
-      rawId === '8B_Putri' ||
-      rawName.includes('8B_PUTRI') ||
-      rawName.includes('8B Putri') ||
-      rawName.toLowerCase() === 'kelas 8b' ||
-      rawName === '8B' ||
-      rawId === '8B'
+      lowerId === '8b' ||
+      lowerId === '8b_putri' ||
+      lowerId === '8b_putra' ||
+      lowerId.includes('8b') ||
+      lowerName.includes('8b')
     ) {
-      return { id: rawId === '8B_PUTRI' || rawId === '8B_Putri' ? '8B' : rawId, name: 'Kelas 8B Putra' };
+      uniqueMap.set('8b', { id: '8B', name: 'Kelas 8B Putra' });
+      return;
     }
-    return c;
+
+    const cleanKey = rawId.toLowerCase();
+    if (cleanKey && !uniqueMap.has(cleanKey)) {
+      uniqueMap.set(cleanKey, {
+        id: rawId,
+        name: rawName.toLowerCase().startsWith('kelas ') ? rawName : `Kelas ${rawName}`
+      });
+    }
   });
 
-  const uniqueMap = new Map<string, Class>();
-  processed.forEach(c => uniqueMap.set(c.id, c));
-  
-  // Make sure 8B is present
-  if (!uniqueMap.has('8B') && !Array.from(uniqueMap.values()).some(c => c.name === 'Kelas 8B Putra')) {
-    uniqueMap.set('8B', { id: '8B', name: 'Kelas 8B Putra' });
+  // Ensure 8B is present
+  if (!uniqueMap.has('8b')) {
+    uniqueMap.set('8b', { id: '8B', name: 'Kelas 8B Putra' });
   }
 
-  return Array.from(uniqueMap.values());
+  return Array.from(uniqueMap.values()).sort((a, b) => 
+    a.name.localeCompare(b.name, undefined, { numeric: true })
+  );
 };
 
 export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

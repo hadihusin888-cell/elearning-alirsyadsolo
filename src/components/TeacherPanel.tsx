@@ -48,13 +48,29 @@ export default function TeacherPanel() {
 
   const [activeTab, setActiveTab] = useState<'dash' | 'materi' | 'tugas' | 'nilai' | 'setting'>('dash');
 
-  // Helper to format class label cleanly and handle 8B_PUTRI -> 8B Putra sync
+  // Helper to format class label cleanly and handle 8B_PUTRI / 8B -> 8B Putra sync
   const formatClassLabel = (idOrName: string) => {
     if (!idOrName) return '';
     const trimmed = idOrName.trim();
-    if (trimmed === '8B_PUTRI' || trimmed === '8B_Putri' || trimmed === '8B Putri' || trimmed === 'Kelas 8B_PUTRI') {
+    const lower = trimmed.toLowerCase();
+
+    // Any 8B variant maps strictly to Kelas 8B Putra
+    if (
+      lower === '8b' ||
+      lower === '8b_putri' ||
+      lower === '8b_putra' ||
+      lower === '8b putri' ||
+      lower === '8b putra' ||
+      lower === 'kelas 8b' ||
+      lower === 'kelas 8b_putri' ||
+      lower === 'kelas 8b_putra' ||
+      lower === 'kelas 8b putri' ||
+      lower === 'kelas 8b putra' ||
+      lower.includes('8b')
+    ) {
       return 'Kelas 8B Putra';
     }
+
     const found = classes.find(c => c.id === trimmed || c.name === trimmed);
     const name = found ? found.name : trimmed;
     if (!name) return '';
@@ -64,15 +80,36 @@ export default function TeacherPanel() {
     return `Kelas ${name}`;
   };
 
-  // Live database classes synchronized with database records
+  // Live database classes synchronized with database records (strictly 1 single 8B Putra entry)
   const databaseClasses = useMemo(() => {
     const list = classes && classes.length > 0 ? classes : [];
     const uniqueMap = new Map<string, Class>();
+
     list.forEach(c => {
-      const id = (c.id === '8B_PUTRI' || c.id === '8B_Putri' || c.id === '8B Putri' || c.id === 'Kelas 8B_PUTRI') ? '8B' : (c.id || c.name);
-      const name = formatClassLabel(c.name || c.id);
-      uniqueMap.set(id, { id, name });
+      const rawId = (c.id || '').trim();
+      const rawName = (c.name || '').trim();
+      const lowerId = rawId.toLowerCase();
+      const lowerName = rawName.toLowerCase();
+
+      // Check if it's 8B
+      const is8B = lowerId.includes('8b') || lowerName.includes('8b');
+      if (is8B) {
+        uniqueMap.set('8b', { id: '8B', name: 'Kelas 8B Putra' });
+        return;
+      }
+
+      const formattedName = formatClassLabel(rawName || rawId);
+      const cleanKey = formattedName.toLowerCase().replace(/^kelas\s+/, '').trim();
+      if (cleanKey && !uniqueMap.has(cleanKey)) {
+        uniqueMap.set(cleanKey, { id: rawId || cleanKey, name: formattedName });
+      }
     });
+
+    // Ensure 8B Putra is always present
+    if (!uniqueMap.has('8b')) {
+      uniqueMap.set('8b', { id: '8B', name: 'Kelas 8B Putra' });
+    }
+
     return Array.from(uniqueMap.values()).sort((a, b) => 
       a.name.localeCompare(b.name, undefined, { numeric: true })
     );
