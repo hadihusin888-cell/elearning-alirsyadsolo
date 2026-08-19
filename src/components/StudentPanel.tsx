@@ -56,11 +56,37 @@ export default function StudentPanel() {
     return idOrName;
   };
 
-  // Identify Student profile
-  const currentStudent = students.find(s => s.id === currentUser?.id);
+  // Identify Student profile reliably
+  const currentStudent = students.find(s => 
+    s.id === currentUser?.id || 
+    s.nis === currentUser?.meta?.nis || 
+    s.nis === currentUser?.id ||
+    s.id === currentUser?.meta?.nis ||
+    (s.nis && String(s.nis) === String(currentUser?.id))
+  ) || {
+    id: currentUser?.id || '',
+    nis: currentUser?.meta?.nis || currentUser?.id || '',
+    name: currentUser?.name || 'Siswa',
+    classId: currentUser?.meta?.classId || '',
+    password: ''
+  };
   const studentClassId = currentStudent?.classId || currentUser?.meta?.classId || '';
   const rawClassName = classes.find(c => c.id === studentClassId)?.name || studentClassId;
   const classNameStr = formatClassLabel(rawClassName);
+
+  // Helper to match student grade across different ID / NIS formats
+  const findStudentGrade = (asgId: string) => {
+    const validStudentIds = [
+      currentUser?.id,
+      currentStudent?.id,
+      currentStudent?.nis,
+      currentUser?.meta?.nis
+    ].filter(Boolean).map(id => String(id));
+
+    return grades.find(g => 
+      validStudentIds.includes(String(g.studentId)) && g.assignmentId === asgId
+    );
+  };
 
   // State
   const [selectedMapelFilter, setSelectedMapelFilter] = useState<string>('');
@@ -117,25 +143,34 @@ export default function StudentPanel() {
   // Submit Answer Action
   const handleSubmitWork = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeAsgDetail || !currentStudent) return;
-    if (activeAsgDetail.formEnabled && !submissionUrl) {
+    if (!activeAsgDetail) return;
+    
+    const effectiveStudentId = currentStudent?.id || currentUser?.id || currentUser?.meta?.nis || '';
+    if (!effectiveStudentId) {
+      setSubMsg('Sesi akun siswa tidak valid. Silakan muat ulang halaman.');
+      return;
+    }
+
+    if (activeAsgDetail.formEnabled && !submissionUrl.trim()) {
       setSubMsg('Masukkan link pengerjaan tugas terlebih dahulu.');
       return;
     }
 
     try {
       submitAssignment(
-        currentStudent.id,
+        effectiveStudentId,
         activeAsgDetail.id,
-        activeAsgDetail.formEnabled ? submissionUrl : 'Form submission not required',
+        activeAsgDetail.formEnabled ? submissionUrl.trim() : 'Form submission not required',
         activeAsgDetail.subjectId,
         studentClassId
       );
       triggerToast('Tugas berhasil dikirimkan ke guru pengampu!');
       setSubmissionUrl('');
       setActiveAsgDetail(null);
+      setSubMsg('');
     } catch (err: any) {
-      setSubMsg('Gagal mengumpulkan tugas.');
+      console.error('Submit assignment error:', err);
+      setSubMsg('Gagal mengumpulkan tugas. Silakan coba lagi.');
     }
   };
 
@@ -196,7 +231,7 @@ export default function StudentPanel() {
   const studentAssignments = assignments.filter(a => isClassForStudent(a.classId, studentClassId));
   
   // Check if current active assignment modal has a submission
-  const modalStudentGrade = activeAsgDetail ? grades.find(g => g.studentId === currentUser?.id && g.assignmentId === activeAsgDetail.id) : null;
+  const modalStudentGrade = activeAsgDetail ? findStudentGrade(activeAsgDetail.id) : null;
   const isModalSubmitted = !!(modalStudentGrade && (modalStudentGrade.status === 'SUBMITTED' || modalStudentGrade.status === 'GRADED'));
   
   // Dynamic filter for Grades Tab
@@ -211,7 +246,7 @@ export default function StudentPanel() {
 
   // Tasks pending list (Tasks that have no completed submission)
   const incompleteAssignments = studentAssignments.filter(a => {
-    const grd = grades.find(g => g.studentId === currentUser?.id && g.assignmentId === a.id);
+    const grd = findStudentGrade(a.id);
     return !grd || grd.status === 'NOT_SUBMITTED' || grd.status === 'RESET';
   });
 
@@ -750,7 +785,7 @@ export default function StudentPanel() {
                       {filteredGradeAssignments.map(a => {
                         const subObj = subjects.find(s => s.id === a.subjectId);
                         const teacherObj = teachers.find(t => t.id === a.teacherId);
-                        const grd = grades.find(g => g.studentId === currentUser?.id && g.assignmentId === a.id);
+                        const grd = findStudentGrade(a.id);
                         const hasGrade = grd && grd.grade !== undefined;
 
                         let statusColor = "border-l-slate-200";

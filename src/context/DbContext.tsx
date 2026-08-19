@@ -383,13 +383,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const studentClassId = currentUser.meta?.classId || 'default';
       studentsQuery = query(collection(db, 'students'), where('classId', '==', studentClassId));
     } else if (currentUser?.role === 'TEACHER') {
-      // Get classes this teacher is assigned to from their metadata
-      const classIds = currentUser.meta?.classIds || [];
-      if (classIds.length > 0) {
-        studentsQuery = query(collection(db, 'students'), where('classId', 'in', classIds.slice(0, 10)));
-      } else {
-        studentsQuery = query(collection(db, 'students'), limit(30));
-      }
+      // Teachers need students to display grading names, NIS, and class details reliably
+      studentsQuery = query(collection(db, 'students'), limit(500));
     } else {
       studentsQuery = query(collection(db, 'students'), where('classId', '==', 'NOT_LOGGED_IN'));
     }
@@ -467,17 +462,17 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     // 7. Grades onSnapshot (Optimized per role)
     let gradesQuery;
     if (currentUser?.role === 'ADMIN') {
-      gradesQuery = query(collection(db, 'grades'), limit(300));
+      gradesQuery = query(collection(db, 'grades'), limit(500));
     } else if (currentUser?.role === 'TEACHER') {
-      const classIds = currentUser.meta?.classIds || [];
-      if (classIds.length > 0) {
-        gradesQuery = query(collection(db, 'grades'), where('classId', 'in', classIds.slice(0, 10)));
-      } else {
-        gradesQuery = query(collection(db, 'grades'), limit(30));
-      }
+      // Teachers fetch submitted grades so they can evaluate their students without query drops
+      gradesQuery = query(collection(db, 'grades'), limit(500));
     } else if (currentUser?.role === 'STUDENT') {
-      // Students ONLY download their own grades/submissions!
-      gradesQuery = query(collection(db, 'grades'), where('studentId', '==', currentUser.id));
+      // Students download their own grades/submissions
+      const studentIds = [currentUser.id];
+      if (currentUser.meta?.nis && currentUser.meta.nis !== currentUser.id) {
+        studentIds.push(currentUser.meta.nis);
+      }
+      gradesQuery = query(collection(db, 'grades'), where('studentId', 'in', studentIds));
     } else {
       gradesQuery = query(collection(db, 'grades'), where('studentId', '==', 'NOT_LOGGED_IN'));
     }
@@ -669,12 +664,7 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         const studentClassId = currentUser.meta?.classId || 'default';
         studentsQuery = query(collection(db, 'students'), where('classId', '==', studentClassId));
       } else if (currentUser?.role === 'TEACHER') {
-        const classIds = currentUser.meta?.classIds || [];
-        if (classIds.length > 0) {
-          studentsQuery = query(collection(db, 'students'), where('classId', 'in', classIds));
-        } else {
-          studentsQuery = query(collection(db, 'students'), limit(30));
-        }
+        studentsQuery = query(collection(db, 'students'), limit(500));
       } else {
         studentsQuery = query(collection(db, 'students'), where('classId', '==', 'NOT_LOGGED_IN'));
       }
@@ -705,14 +695,13 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (currentUser?.role === 'ADMIN') {
         gradesQuery = query(collection(db, 'grades'), limit(500));
       } else if (currentUser?.role === 'TEACHER') {
-        const classIds = currentUser.meta?.classIds || [];
-        if (classIds.length > 0) {
-          gradesQuery = query(collection(db, 'grades'), where('classId', 'in', classIds));
-        } else {
-          gradesQuery = query(collection(db, 'grades'), limit(30));
-        }
+        gradesQuery = query(collection(db, 'grades'), limit(500));
       } else if (currentUser?.role === 'STUDENT') {
-        gradesQuery = query(collection(db, 'grades'), where('studentId', '==', currentUser.id));
+        const studentIds = [currentUser.id];
+        if (currentUser.meta?.nis && currentUser.meta.nis !== currentUser.id) {
+          studentIds.push(currentUser.meta.nis);
+        }
+        gradesQuery = query(collection(db, 'grades'), where('studentId', 'in', studentIds));
       } else {
         gradesQuery = query(collection(db, 'grades'), where('studentId', '==', 'NOT_LOGGED_IN'));
       }

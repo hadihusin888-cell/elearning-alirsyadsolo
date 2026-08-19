@@ -492,6 +492,16 @@ export default function TeacherPanel() {
     return targetClasses.some(c => c.startsWith(tGradeFilter));
   });
 
+  // Helper to find student for any grade document reliably
+  const getGradeStudent = (studentIdVal: string) => {
+    const sId = String(studentIdVal || '').trim();
+    return students.find(s => 
+      s.id === sId || 
+      s.nis === sId || 
+      (s.nis && String(s.nis).trim() === sId)
+    );
+  };
+
   // Assignments filtered by selectedClassFilter (for grading assignment dropdown)
   const classAssignments = teacherAssignments.filter(a => {
     if (!selectedClassFilter) return false;
@@ -504,28 +514,42 @@ export default function TeacherPanel() {
 
   // Gather grades filtered by assignments made by this teacher, selected class, assignment, and status
   const currentGrades = grades.filter(g => {
-    const isTeacherAsg = teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+    const isTeacherAsg = teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                         assignments.some(a => a.id === g.assignmentId && (a.teacherId === currentUser?.id || a.teacherId === currentTeacher?.id || a.teacherId === currentTeacher?.nik));
     if (!isTeacherAsg) return false;
     if (g.status === 'RESET' || g.status === 'NOT_SUBMITTED') return false;
 
     // Filter 1: Class Filter
     if (selectedClassFilter) {
       const targetClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
-      const targetId = selectedClassFilter.toLowerCase();
-      const targetName = targetClassObj ? targetClassObj.name.toLowerCase() : targetId;
-      const gClass = (g.classId || '').toLowerCase();
-      const std = students.find(s => s.id === g.studentId);
-      const stdClass = (std?.classId || '').toLowerCase();
+      const targetId = selectedClassFilter.toLowerCase().trim();
+      const targetName = (targetClassObj ? targetClassObj.name : targetId).toLowerCase().trim();
+      const gClass = (g.classId || '').toLowerCase().trim();
+      const std = getGradeStudent(g.studentId);
+      const stdClass = (std?.classId || '').toLowerCase().trim();
+      const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                  assignments.find(a => a.id === g.assignmentId);
+      const asgClass = (asg?.classId || '').toLowerCase().trim();
 
-      const is8BTarget = targetId === '8b' || targetId === '8b_putri' || targetName.includes('8b');
+      const isTarget8B = targetId === '8b' || targetId === '8b_putri' || targetId === '8b_putra' || targetName.includes('8b');
+      const isRecord8B = gClass.includes('8b') || stdClass.includes('8b') || asgClass.includes('8b');
 
-      let matchesClass = gClass === targetId || gClass === targetName ||
-                         stdClass === targetId || stdClass === targetName ||
-                         gClass.includes(targetName) || stdClass.includes(targetName);
+      let matchesClass = false;
+      if (isTarget8B && isRecord8B) {
+        matchesClass = true;
+      } else {
+        const cleanTarget = targetId.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
+        const cleanGClass = gClass.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
+        const cleanStdClass = stdClass.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
+        const cleanAsgClass = asgClass.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
 
-      if (is8BTarget && !matchesClass) {
-        matchesClass = gClass === '8b' || gClass === '8b_putri' || gClass.includes('8b') ||
-                       stdClass === '8b' || stdClass === '8b_putri' || stdClass.includes('8b');
+        matchesClass = 
+          gClass === targetId || gClass === targetName ||
+          stdClass === targetId || stdClass === targetName ||
+          (cleanGClass !== '' && cleanGClass === cleanTarget) ||
+          (cleanStdClass !== '' && cleanStdClass === cleanTarget) ||
+          gClass.includes(targetName) || stdClass.includes(targetName) ||
+          (cleanAsgClass !== '' && cleanAsgClass.includes(cleanTarget));
       }
 
       if (!matchesClass) return false;
@@ -552,8 +576,9 @@ export default function TeacherPanel() {
   const printRows = useMemo(() => {
     return currentGrades
       .map((g, idx) => {
-        const std = students.find(s => s.id === g.studentId);
-        const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+        const std = getGradeStudent(g.studentId);
+        const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                    assignments.find(a => a.id === g.assignmentId);
         let statusText = "Belum Dinilai";
         if (g.status === 'GRADED') statusText = "Sudah Dinilai";
         else if (g.status === 'RESET') statusText = "Minta Ulang";
@@ -569,7 +594,7 @@ export default function TeacherPanel() {
         };
       })
       .sort((a, b) => a.studentName.localeCompare(b.studentName));
-  }, [currentGrades, students, teacherAssignments]);
+  }, [currentGrades, students, teacherAssignments, assignments]);
 
   const printClassName = selectedClassFilter 
     ? formatClassLabel(selectedClassFilter) 
@@ -790,7 +815,9 @@ export default function TeacherPanel() {
 
   // Calculate statistics
   const ungradedCount = grades.filter(g => 
-    teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) && g.status === 'SUBMITTED'
+    (teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+     assignments.some(a => a.id === g.assignmentId && (a.teacherId === currentUser?.id || a.teacherId === currentTeacher?.id || a.teacherId === currentTeacher?.nik))) && 
+    g.status === 'SUBMITTED'
   ).length;
 
   return (
@@ -1005,17 +1032,25 @@ export default function TeacherPanel() {
                   <p className="text-xs text-slate-400 italic text-center py-6">Semua pengumpulan tugas terkoreksi habis! Bagus sekali!</p>
                 ) : (
                   <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                    {(grades || []).filter(g => teacherAssignments.some(a => a.id === g.assignmentId) && g.status === 'SUBMITTED').map(g => {
-                      const asg = teacherAssignments.find(a => a.id === g.assignmentId);
-                      const std = students.find(s => s.id === g.studentId);
+                    {(grades || []).filter(g => (
+                      teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                      assignments.some(a => a.id === g.assignmentId && (a.teacherId === currentUser?.id || a.teacherId === currentTeacher?.id || a.teacherId === currentTeacher?.nik))
+                    ) && g.status === 'SUBMITTED').map(g => {
+                      const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                                  assignments.find(a => a.id === g.assignmentId);
+                      const std = getGradeStudent(g.studentId);
                       return (
                         <div key={g.id} className="py-3 flex items-center justify-between gap-3 text-xs">
                           <div>
                             <p className="font-bold text-slate-900 truncate max-w-xs">{std?.name || g.studentId}</p>
-                            <p className="text-[10px] text-slate-400">{asg?.title} • {formatClassLabel(g.classId || std?.classId || '')}</p>
+                            <p className="text-[10px] text-slate-400">{asg?.title || 'Tugas'} • {formatClassLabel(g.classId || std?.classId || '')}</p>
                           </div>
                           <button
-                            onClick={() => { setActiveTab('nilai'); setSelectedAsgFilter(g.assignmentId); }}
+                            onClick={() => { 
+                              setActiveTab('nilai'); 
+                              if (g.classId || std?.classId) setSelectedClassFilter(g.classId || std?.classId || '');
+                              setSelectedAsgFilter(g.assignmentId); 
+                            }}
                             className="bg-slate-950 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-teal-700 transition"
                           >
                             Koreksi
@@ -1480,8 +1515,9 @@ export default function TeacherPanel() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
                       {currentGrades.map(g => {
-                        const std = students.find(s => s.id === g.studentId);
-                        const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+                        const std = getGradeStudent(g.studentId);
+                        const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                                    assignments.find(a => a.id === g.assignmentId);
                         return (
                           <tr key={g.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4 pl-6">
