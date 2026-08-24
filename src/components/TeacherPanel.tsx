@@ -502,14 +502,73 @@ export default function TeacherPanel() {
     );
   };
 
+  // Helper to normalize any class string to a canonical token (e.g., '8b_putra', '7a_putri', '7a_putra', etc.)
+  const getCanonicalClassToken = (val: string) => {
+    if (!val) return '';
+    const trimmed = String(val).trim().toLowerCase();
+    
+    // Any 8B variant maps strictly to 8b_putra
+    if (
+      trimmed === '8b' ||
+      trimmed === '8b_putri' ||
+      trimmed === '8b_putra' ||
+      trimmed === '8b putri' ||
+      trimmed === '8b putra' ||
+      trimmed === 'kelas 8b' ||
+      trimmed === 'kelas 8b_putri' ||
+      trimmed === 'kelas 8b_putra' ||
+      trimmed === 'kelas 8b putri' ||
+      trimmed === 'kelas 8b putra' ||
+      trimmed.includes('8b')
+    ) {
+      return '8b_putra';
+    }
+
+    return trimmed
+      .replace(/^kelas\s+/, '')
+      .replace(/^cls[-_]/, '')
+      .replace(/[\s\-_]+/g, '_')
+      .trim();
+  };
+
+  // Helper to check if a student belongs to a specific target class filter
+  const isStudentInTargetClass = (studentClassId: string, gradeClassId: string, targetFilter: string) => {
+    if (!targetFilter) return true;
+    const targetToken = getCanonicalClassToken(targetFilter);
+    const targetClassObj = classes.find(c => c.id === targetFilter || c.name === targetFilter);
+    const targetTokens = Array.from(new Set([
+      targetToken,
+      getCanonicalClassToken(targetClassObj?.id || ''),
+      getCanonicalClassToken(targetClassObj?.name || ''),
+      getCanonicalClassToken(formatClassLabel(targetFilter))
+    ].filter(Boolean)));
+
+    const sClassToken = getCanonicalClassToken(studentClassId);
+    const gClassToken = getCanonicalClassToken(gradeClassId);
+
+    return targetTokens.some(t => t === sClassToken || (sClassToken === '' && t === gClassToken));
+  };
+
   // Assignments filtered by selectedClassFilter (for grading assignment dropdown)
   const classAssignments = teacherAssignments.filter(a => {
     if (!selectedClassFilter) return false;
-    const classesArr = a.classId ? a.classId.split(',').map(c => c.trim().toLowerCase()) : [];
+    const targetToken = getCanonicalClassToken(selectedClassFilter);
     const targetClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
-    const targetId = selectedClassFilter.toLowerCase();
-    const targetName = targetClassObj ? targetClassObj.name.toLowerCase() : targetId;
-    return classesArr.some(c => c === targetId || c === targetName || c.replace(/^kelas\s+/, '') === targetName.replace(/^kelas\s+/, ''));
+    const targetTokens = Array.from(new Set([
+      targetToken,
+      getCanonicalClassToken(targetClassObj?.id || ''),
+      getCanonicalClassToken(targetClassObj?.name || ''),
+      getCanonicalClassToken(formatClassLabel(selectedClassFilter))
+    ].filter(Boolean)));
+
+    const asgClasses = (a.classIdsArray && a.classIdsArray.length > 0)
+      ? a.classIdsArray
+      : (a.classId ? a.classId.split(',').map(c => c.trim()) : []);
+
+    return asgClasses.some(c => {
+      const cToken = getCanonicalClassToken(c);
+      return targetTokens.includes(cToken);
+    });
   });
 
   // Gather grades filtered by assignments made by this teacher, selected class, assignment, and status
@@ -519,45 +578,19 @@ export default function TeacherPanel() {
     if (!isTeacherAsg) return false;
     if (g.status === 'RESET' || g.status === 'NOT_SUBMITTED') return false;
 
-    // Filter 1: Class Filter
+    // Filter 1: Class Filter (strictly filters by student's class, never matching assignment's multi-class list)
     if (selectedClassFilter) {
-      const targetClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
-      const targetId = selectedClassFilter.toLowerCase().trim();
-      const targetName = (targetClassObj ? targetClassObj.name : targetId).toLowerCase().trim();
-      const gClass = (g.classId || '').toLowerCase().trim();
       const std = getGradeStudent(g.studentId);
-      const stdClass = (std?.classId || '').toLowerCase().trim();
-      const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-                  assignments.find(a => a.id === g.assignmentId);
-      const asgClass = (asg?.classId || '').toLowerCase().trim();
-
-      const isTarget8B = targetId === '8b' || targetId === '8b_putri' || targetId === '8b_putra' || targetName.includes('8b');
-      const isRecord8B = gClass.includes('8b') || stdClass.includes('8b') || asgClass.includes('8b');
-
-      let matchesClass = false;
-      if (isTarget8B && isRecord8B) {
-        matchesClass = true;
-      } else {
-        const cleanTarget = targetId.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
-        const cleanGClass = gClass.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
-        const cleanStdClass = stdClass.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
-        const cleanAsgClass = asgClass.replace(/^(kelas\s+|cls-?)/, '').replace(/\s+/g, '');
-
-        matchesClass = 
-          gClass === targetId || gClass === targetName ||
-          stdClass === targetId || stdClass === targetName ||
-          (cleanGClass !== '' && cleanGClass === cleanTarget) ||
-          (cleanStdClass !== '' && cleanStdClass === cleanTarget) ||
-          gClass.includes(targetName) || stdClass.includes(targetName) ||
-          (cleanAsgClass !== '' && cleanAsgClass.includes(cleanTarget));
-      }
-
-      if (!matchesClass) return false;
+      const studentClass = std?.classId || g.classId || '';
+      const gradeClass = g.classId || '';
+      
+      const belongsToClass = isStudentInTargetClass(studentClass, gradeClass, selectedClassFilter);
+      if (!belongsToClass) return false;
     }
 
     // Filter 2: Assignment Filter
     if (selectedAsgFilter) {
-      const selectedAsgObj = teacherAssignments.find(a => a.id === selectedAsgFilter);
+      const selectedAsgObj = teacherAssignments.find(a => a.id === selectedAsgFilter) || assignments.find(a => a.id === selectedAsgFilter);
       const validAsgIds = (selectedAsgObj as any)?.allIds || [selectedAsgFilter];
       if (!validAsgIds.includes(g.assignmentId)) return false;
     }
@@ -597,10 +630,10 @@ export default function TeacherPanel() {
   }, [currentGrades, students, teacherAssignments, assignments]);
 
   const printClassName = selectedClassFilter 
-    ? formatClassLabel(selectedClassFilter) 
+    ? formatClassLabel(databaseClasses.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter)?.name || selectedClassFilter) 
     : 'Semua Kelas';
 
-  const selectedAsgObj = teacherAssignments.find(a => a.id === selectedAsgFilter);
+  const selectedAsgObj = teacherAssignments.find(a => a.id === selectedAsgFilter) || assignments.find(a => a.id === selectedAsgFilter);
   const printTaskTitle = selectedAsgObj ? selectedAsgObj.title : 'Semua Tugas Kelas Ini';
 
   const asgSubjectObj = subjects.find(s => s.id === selectedAsgObj?.subjectId);
