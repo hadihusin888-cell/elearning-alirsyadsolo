@@ -20,7 +20,8 @@ import {
   Info, 
   Calendar, 
   Eye, 
-  EyeOff 
+  EyeOff,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -33,6 +34,39 @@ const formatDateSafe = (val?: string | null, options?: Intl.DateTimeFormatOption
   } catch {
     return String(val);
   }
+};
+
+// Check if assignment deadline has passed
+export const isDeadlinePassed = (dueDateStr?: string | null): boolean => {
+  if (!dueDateStr || !String(dueDateStr).trim()) return false;
+  const trimmed = String(dueDateStr).trim();
+  try {
+    // Format YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [year, month, day] = trimmed.split('-').map(Number);
+      const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+      return Date.now() > endOfDay.getTime();
+    }
+    // Format DD-MM-YYYY or DD/MM/YYYY
+    if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/.test(trimmed)) {
+      const parts = trimmed.split(/[-/]/).map(Number);
+      const day = parts[0];
+      const month = parts[1];
+      const year = parts[2];
+      const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+      return Date.now() > endOfDay.getTime();
+    }
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      if (trimmed.length <= 10) {
+        parsed.setHours(23, 59, 59, 999);
+      }
+      return Date.now() > parsed.getTime();
+    }
+  } catch (e) {
+    console.warn('Error checking deadline:', dueDateStr, e);
+  }
+  return false;
 };
 
 export default function StudentPanel() {
@@ -91,6 +125,7 @@ export default function StudentPanel() {
   // State
   const [selectedMapelFilter, setSelectedMapelFilter] = useState<string>('');
   const [selectedGradeMapelFilter, setSelectedGradeMapelFilter] = useState<string>('');
+  const [tugasStatusFilter, setTugasStatusFilter] = useState<'ACTIVE' | 'ALL' | 'CLOSED'>('ACTIVE');
   const [activeAsgDetail, setActiveAsgDetail] = useState<Assignment | null>(null);
   const [activeMaterialDetail, setActiveMaterialDetail] = useState<Material | null>(null);
   const [submissionUrl, setSubmissionUrl] = useState('');
@@ -144,6 +179,11 @@ export default function StudentPanel() {
   const handleSubmitWork = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeAsgDetail) return;
+
+    if (isDeadlinePassed(activeAsgDetail.dueDate)) {
+      setSubMsg('Batas waktu pengumpulan tugas ini telah berakhir. Tugas telah ditutup otomatis oleh sistem.');
+      return;
+    }
     
     const effectiveStudentId = currentStudent?.id || currentUser?.id || currentUser?.meta?.nis || '';
     if (!effectiveStudentId) {
@@ -244,8 +284,9 @@ export default function StudentPanel() {
     ? studentMaterials.filter(m => m.subjectId === selectedMapelFilter)
     : studentMaterials;
 
-  // Tasks pending list (Tasks that have no completed submission)
+  // Tasks pending list (Tasks that have no completed submission and are not expired)
   const incompleteAssignments = studentAssignments.filter(a => {
+    if (isDeadlinePassed(a.dueDate)) return false; // Expired tasks are closed automatically
     const grd = findStudentGrade(a.id);
     return !grd || grd.status === 'NOT_SUBMITTED' || grd.status === 'RESET';
   });
@@ -613,60 +654,145 @@ export default function StudentPanel() {
         )}
 
         {/* TAB 3: TUGAS SAYA */}
-        {activeTab === 'tugas' && (
-          <div className="space-y-6">
-            <p className="text-xs font-semibold text-slate-500 bg-white p-3.5 rounded-xl border">
-              Ketuk untuk membuka lembar informasi kuis, link eksternal (Quizizz/GForms), dan formulir pengisian tugas.
-            </p>
+        {activeTab === 'tugas' && (() => {
+          const openAssignments = studentAssignments.filter(a => !isDeadlinePassed(a.dueDate));
+          const closedAssignments = studentAssignments.filter(a => isDeadlinePassed(a.dueDate));
+          const displayedAssignments = tugasStatusFilter === 'ACTIVE'
+            ? openAssignments
+            : tugasStatusFilter === 'CLOSED'
+            ? closedAssignments
+            : studentAssignments;
 
-            {studentAssignments.length === 0 ? (
-              <div className="bg-white p-12 text-center rounded-2xl border text-slate-400 text-xs">Pujian bagi Allah! Tidak ada tugas latihan terdaftar untuk kelas Anda saat ini.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {studentAssignments.map(a => {
-                  const subObj = subjects.find(s => s.id === a.subjectId);
-                  const teacherObj = teachers.find(t => t.id === a.teacherId);
-                  const grd = grades.find(g => g.studentId === currentUser?.id && g.assignmentId === a.id);
-                  const isSubmitted = grd && (grd.status === 'SUBMITTED' || grd.status === 'GRADED');
-
-                  return (
-                    <div key={a.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/40 transition-all duration-350 space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                          <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-2.5 py-1 rounded-lg uppercase tracking-wide truncate max-w-[140px]">{subObj?.name}</span>
-                          <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg border ${
-                            isSubmitted ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'
-                          }`}>
-                            {isSubmitted ? '✔ Sudah dikerjakan' : '❌ Belum dikerjakan'}
-                          </span>
-                        </div>
-                        <h4 className="font-serif-heading font-extrabold text-slate-900 text-sm tracking-tight leading-snug text-left">{a.title}</h4>
-                        <p className="text-xs text-slate-600 font-medium line-clamp-3 text-left leading-relaxed">{a.description}</p>
-                        
-                        <div className="pt-2 text-[10px] uppercase font-black tracking-widest text-slate-400 text-left border-t border-dashed border-slate-100 mt-2 flex items-center justify-between">
-                          <span>Batas Pengumpulan:</span>
-                          <b className="text-slate-700 font-mono inline-flex items-center gap-1 text-xs">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" /> {a.dueDate}
-                          </b>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-slate-100 pt-3.5 flex items-center justify-between text-xs">
-                        <span className="text-slate-400 font-bold truncate max-w-[130px]">{teacherObj?.name}</span>
-                        <button
-                          onClick={() => { setActiveAsgDetail(a); setSubmissionUrl(''); setSubMsg(''); }}
-                          className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-[10px] px-4 py-2.5 rounded-xl cursor-pointer transition select-none shadow-xs"
-                        >
-                          Buka Tugas
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+          return (
+            <div className="space-y-5">
+              {/* Filter Tabs & Info */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200/80">
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setTugasStatusFilter('ACTIVE')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      tugasStatusFilter === 'ACTIVE'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Tugas Aktif ({openAssignments.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTugasStatusFilter('CLOSED')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                      tugasStatusFilter === 'CLOSED'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Lock className="w-3 h-3" /> Tugas Ditutup ({closedAssignments.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTugasStatusFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      tugasStatusFilter === 'ALL'
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Semua ({studentAssignments.length})
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 italic text-left sm:text-right">
+                  ※ Tugas yang melewati batas waktu otomatis ditutup sistem.
+                </p>
               </div>
-            )}
-          </div>
-        )}
+
+              {displayedAssignments.length === 0 ? (
+                <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">
+                  {tugasStatusFilter === 'ACTIVE'
+                    ? 'Alhamdulillah! Tidak ada tugas aktif yang sedang berlangsung untuk kelas Anda saat ini (tugas yang melewati tenggat waktu otomatis ditutup).'
+                    : tugasStatusFilter === 'CLOSED'
+                    ? 'Tidak ada tugas yang ditutup karena batas waktu.'
+                    : 'Pujian bagi Allah! Tidak ada tugas terdaftar untuk kelas Anda saat ini.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {displayedAssignments.map(a => {
+                    const subObj = subjects.find(s => s.id === a.subjectId);
+                    const teacherObj = teachers.find(t => t.id === a.teacherId);
+                    const grd = findStudentGrade(a.id);
+                    const isSubmitted = grd && (grd.status === 'SUBMITTED' || grd.status === 'GRADED');
+                    const isExpired = isDeadlinePassed(a.dueDate);
+
+                    return (
+                      <div 
+                        key={a.id} 
+                        className={`bg-white p-5 rounded-2xl border transition-all duration-350 space-y-4 flex flex-col justify-between ${
+                          isExpired 
+                            ? 'border-rose-150 bg-rose-50/20 opacity-90' 
+                            : 'border-slate-200 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/40'
+                        }`}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                            <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-2.5 py-1 rounded-lg uppercase tracking-wide truncate max-w-[130px]">
+                              {subObj?.name || a.subjectId}
+                            </span>
+                            {isExpired ? (
+                              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg border bg-rose-50 border-rose-200 text-rose-700 inline-flex items-center gap-1 shrink-0">
+                                <Lock className="w-3 h-3" /> Ditutup
+                              </span>
+                            ) : (
+                              <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg border shrink-0 ${
+                                isSubmitted ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+                              }`}>
+                                {isSubmitted ? '✔ Sudah dikerjakan' : '⏳ Belum dikerjakan'}
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="font-serif-heading font-extrabold text-slate-900 text-sm tracking-tight leading-snug text-left">{a.title}</h4>
+                          <p className="text-xs text-slate-600 font-medium line-clamp-3 text-left leading-relaxed">
+                            {isExpired ? 'Tugas telah melewati batas tenggat pengumpulan dan ditutup otomatis.' : a.description}
+                          </p>
+                          
+                          <div className="pt-2 text-[10px] uppercase font-black tracking-widest text-slate-400 text-left border-t border-dashed border-slate-100 mt-2 flex items-center justify-between">
+                            <span>Batas Pengumpulan:</span>
+                            <b className={`font-mono inline-flex items-center gap-1 text-xs ${isExpired ? 'text-rose-600' : 'text-slate-700'}`}>
+                              <Calendar className={`w-3.5 h-3.5 shrink-0 ${isExpired ? 'text-rose-400' : 'text-slate-400'}`} /> 
+                              {a.dueDate} {isExpired && '(Lewat)'}
+                            </b>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-100 pt-3.5 flex items-center justify-between text-xs">
+                          <span className="text-slate-400 font-bold truncate max-w-[130px]">{teacherObj?.name || 'Guru'}</span>
+                          {isExpired ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="bg-slate-100 text-slate-400 font-bold text-[10px] px-3.5 py-2.5 rounded-xl cursor-not-allowed border border-slate-200 select-none inline-flex items-center gap-1.5"
+                              title="Tugas ini telah ditutup karena batas waktu telah habis."
+                            >
+                              <Lock className="w-3 h-3" /> Waktu Habis
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setActiveAsgDetail(a); setSubmissionUrl(''); setSubMsg(''); }}
+                              className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-[10px] px-4 py-2.5 rounded-xl cursor-pointer transition select-none shadow-xs"
+                            >
+                              Buka Tugas
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* TAB 4: NILAI SAYA */}
         {activeTab === 'nilai' && (
@@ -1066,198 +1192,223 @@ export default function StudentPanel() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-[9px] font-black text-teal-700 uppercase tracking-widest mb-1">Instruksi Pengerjaan:</label>
-                  <p className="bg-teal-50/50 p-3.5 rounded-xl border border-teal-100 leading-relaxed text-[11px] text-slate-900 font-semibold whitespace-pre-wrap">
-                    {activeAsgDetail.description}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between text-2xs text-slate-400">
-                  <span>Diposting oleh: <b>{teachers.find(t => t.id === activeAsgDetail.teacherId)?.name || 'Guru'}</b></span>
-                  <span>Batas Akhir: <b className="text-red-600">{activeAsgDetail.dueDate}</b></span>
-                </div>
-
-                {/* Live Preview Area for Assignments */}
-                {activeAsgDetail.link && (() => {
-                  const embedUrl = getEmbeddableUrl(activeAsgDetail.link);
-                  const isImg = isImageLink(activeAsgDetail.link);
-                  const previewAvailable = activeAsgDetail.previewEnabled !== false;
-
-                  if (!previewAvailable) {
-                    return (
-                      <div className="space-y-3 pt-4 border-t border-slate-100/80">
-                        <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                          <div className="text-left">
-                            <span className="font-extrabold text-slate-800 text-xs block">Tautan Tugas / Latihan Aktif</span>
-                            <span className="text-[10px] text-slate-500">Pratinjau langsung dinonaktifkan oleh guru. Silakan gunakan tombol berikut untuk membuka tugas:</span>
-                          </div>
-                          <a
-                            href={activeAsgDetail.link}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="bg-teal-600 hover:bg-teal-700 text-white font-extrabold px-4 py-2.5 rounded-xl inline-flex items-center justify-center gap-1.5 text-xs shadow-xs hover:shadow-2xs transition-all shrink-0 cursor-pointer"
-                          >
-                            Buka Lembar Latihan <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-3 pt-2 border-t border-slate-100">
-                      <div className="flex justify-between items-center">
-                        <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                          Pratinjau Media Tugas / Latihan
-                        </h5>
-                        <a
-                          href={activeAsgDetail.link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold px-3 py-1.5 rounded-lg border border-teal-200/60 inline-flex items-center gap-1.5 text-2xs hover:shadow-2xs transition"
-                        >
-                          Buka di Tab Baru <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-
-                      {embedUrl ? (
-                        <div className="relative w-full aspect-video md:h-[350px] rounded-xl overflow-hidden border border-slate-200/80 bg-slate-100 shadow-sm">
-                          <iframe
-                            src={embedUrl}
-                            className="absolute inset-0 w-full h-full border-0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            allowFullScreen
-                            title={activeAsgDetail.title}
-                          />
-                        </div>
-                      ) : isImg ? (
-                        <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-3 max-h-[350px]">
-                          <img
-                            src={activeAsgDetail.link}
-                            alt={activeAsgDetail.title}
-                            className="max-w-full max-h-[320px] object-contain rounded-lg"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="bg-amber-50/80 border border-amber-200/60 text-amber-900 p-3 rounded-xl text-[11px] leading-relaxed font-medium">
-                            <span className="font-extrabold flex items-center gap-1 text-amber-850">💡 Tips Akses Link Latihan</span>
-                            Beberapa link eksternal (terutama Quizizz, Google Forms tertentu, rujukan situs luar) memiliki protokol keamanan ketat browser (X-Frame-Options) dan tidak mengizinkan pratinjau langsung di dalam aplikasi. Jika frame di bawah ini kosong atau tidak bisa diketik, silakan langsung gunakan tombol <strong>Buka di Tab Baru</strong> di atas untuk kenyamanan terbaik.
-                          </div>
-                          <div className="relative w-full h-[320px] rounded-xl overflow-hidden border border-slate-200/80 bg-slate-50 shadow-inner">
-                            <iframe
-                              src={activeAsgDetail.link}
-                              className="absolute inset-0 w-full h-full border-0"
-                              title={activeAsgDetail.title}
-                            />
-                          </div>
-                        </div>
-                      )}
+                {isDeadlinePassed(activeAsgDetail.dueDate) ? (
+                  <div className="py-8 px-4 text-center space-y-4">
+                    <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
+                      <Lock className="w-8 h-8" />
                     </div>
-                  );
-                })()}
-
-                {/* Form enabled submission link */}
-                {isModalSubmitted ? (
-                  <div className="border-t border-slate-100 pt-5 space-y-4">
-                    <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-start gap-2.5">
-                      <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
-                      <div>
-                        <h4 className="font-extrabold text-green-950 text-xs text-left mb-1">
-                          Tugas Telah Berhasil Dikumpulkan
-                        </h4>
-                        <p className="text-[11px] text-green-700 leading-relaxed text-left">
-                          Anda telah menyelesaikan tugas ini pada tanggal: <strong>{modalStudentGrade?.submittedAt ? new Date(modalStudentGrade.submittedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-'}</strong>.
-                        </p>
-                      </div>
+                    <div className="space-y-2 max-w-md mx-auto">
+                      <h4 className="font-serif-heading font-extrabold text-slate-900 text-base">Tugas Telah Ditutup</h4>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Batas waktu pengumpulan tugas ini telah berakhir pada tanggal <strong className="text-rose-600 font-mono font-bold">{formatDateSafe(activeAsgDetail.dueDate)}</strong>. Sesuai kebijakan sistem, lembar latihan, tautan tugas, dan formulir pengumpulan jawaban telah otomatis dikunci dan tidak dapat diakses lagi.
+                      </p>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveAsgDetail(null)}
+                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-6 py-2.5 rounded-xl transition cursor-pointer"
+                      >
+                        Tutup Jendela
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-[9px] font-black text-teal-700 uppercase tracking-widest mb-1">Instruksi Pengerjaan:</label>
+                      <p className="bg-teal-50/50 p-3.5 rounded-xl border border-teal-100 leading-relaxed text-[11px] text-slate-900 font-semibold whitespace-pre-wrap">
+                        {activeAsgDetail.description}
+                      </p>
                     </div>
 
-                    {activeAsgDetail.formEnabled && (
-                      <div className="space-y-1.5 text-left">
-                        <label className="block text-2xs font-extrabold text-slate-400 uppercase tracking-widest">
-                          Tautan Laporan Tugas Terdaftar (Terkunci):
-                        </label>
-                        <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] text-slate-650">
-                          <span className="truncate flex-1">{modalStudentGrade?.submissionLink || '-'}</span>
-                          {modalStudentGrade?.submissionLink && modalStudentGrade.submissionLink !== 'Form submission not required' && (
+                    <div className="flex items-center justify-between text-2xs text-slate-400">
+                      <span>Diposting oleh: <b>{teachers.find(t => t.id === activeAsgDetail.teacherId)?.name || 'Guru'}</b></span>
+                      <span>Batas Akhir: <b className="text-teal-700 font-mono font-bold">{activeAsgDetail.dueDate}</b></span>
+                    </div>
+
+                    {/* Live Preview Area for Assignments */}
+                    {activeAsgDetail.link && (() => {
+                      const embedUrl = getEmbeddableUrl(activeAsgDetail.link);
+                      const isImg = isImageLink(activeAsgDetail.link);
+                      const previewAvailable = activeAsgDetail.previewEnabled !== false;
+
+                      if (!previewAvailable) {
+                        return (
+                          <div className="space-y-3 pt-4 border-t border-slate-100/80">
+                            <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                              <div className="text-left">
+                                <span className="font-extrabold text-slate-800 text-xs block">Tautan Tugas / Latihan Aktif</span>
+                                <span className="text-[10px] text-slate-500">Pratinjau langsung dinonaktifkan oleh guru. Silakan gunakan tombol berikut untuk membuka tugas:</span>
+                              </div>
+                              <a
+                                href={activeAsgDetail.link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="bg-teal-600 hover:bg-teal-700 text-white font-extrabold px-4 py-2.5 rounded-xl inline-flex items-center justify-center gap-1.5 text-xs shadow-xs hover:shadow-2xs transition-all shrink-0 cursor-pointer"
+                              >
+                                Buka Lembar Latihan <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-3 pt-2 border-t border-slate-100">
+                          <div className="flex justify-between items-center">
+                            <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                              Pratinjau Media Tugas / Latihan
+                            </h5>
                             <a
-                              href={modalStudentGrade.submissionLink}
+                              href={activeAsgDetail.link}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-teal-700 hover:text-teal-800 font-extrabold shrink-0 inline-flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-3xs hover:shadow-2xs transition"
+                              className="bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold px-3 py-1.5 rounded-lg border border-teal-200/60 inline-flex items-center gap-1.5 text-2xs hover:shadow-2xs transition"
                             >
-                              Buka Tautan <ExternalLink className="w-3 h-3" />
+                              Buka di Tab Baru <ExternalLink className="w-3 h-3" />
                             </a>
+                          </div>
+
+                          {embedUrl ? (
+                            <div className="relative w-full aspect-video md:h-[350px] rounded-xl overflow-hidden border border-slate-200/80 bg-slate-100 shadow-sm">
+                              <iframe
+                                src={embedUrl}
+                                className="absolute inset-0 w-full h-full border-0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                allowFullScreen
+                                title={activeAsgDetail.title}
+                              />
+                            </div>
+                          ) : isImg ? (
+                            <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-3 max-h-[350px]">
+                              <img
+                                src={activeAsgDetail.link}
+                                alt={activeAsgDetail.title}
+                                className="max-w-full max-h-[320px] object-contain rounded-lg"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="bg-amber-50/80 border border-amber-200/60 text-amber-900 p-3 rounded-xl text-[11px] leading-relaxed font-medium">
+                                <span className="font-extrabold flex items-center gap-1 text-amber-850">💡 Tips Akses Link Latihan</span>
+                                Beberapa link eksternal (terutama Quizizz, Google Forms tertentu, rujukan situs luar) memiliki protokol keamanan ketat browser (X-Frame-Options) dan tidak mengizinkan pratinjau langsung di dalam aplikasi. Jika frame di bawah ini kosong atau tidak bisa diketik, silakan langsung gunakan tombol <strong>Buka di Tab Baru</strong> di atas untuk kenyamanan terbaik.
+                              </div>
+                              <div className="relative w-full h-[320px] rounded-xl overflow-hidden border border-slate-200/80 bg-slate-50 shadow-inner">
+                                <iframe
+                                  src={activeAsgDetail.link}
+                                  className="absolute inset-0 w-full h-full border-0"
+                                  title={activeAsgDetail.title}
+                                />
+                              </div>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
-                    {/* Disabled Send Button */}
-                    <button
-                      type="button"
-                      disabled
-                      className="w-full bg-slate-100 text-slate-400 border border-slate-200 font-bold py-3.5 rounded-xl flex items-center justify-center gap-1.5 cursor-not-allowed text-xs transition"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-slate-400" /> Pengiriman Jawaban Nonaktif (Telah Selesai)
-                    </button>
-                  </div>
-                ) : activeAsgDetail.formEnabled ? (
-                  <form onSubmit={handleSubmitWork} className="border-t border-slate-100 pt-4 space-y-3">
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1.5 text-left relative">
-                        <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest">
-                          Kumpulkan Tautan Laporan Tugas (Filebin, Google Drive, Canva dll)
-                        </label>
-                        <div className="relative group inline-flex items-center">
-                          <Info className="w-3.5 h-3.5 text-slate-400 hover:text-teal-600 transition-colors cursor-pointer" />
-                          
-                          {/* Beautiful Interactive Tooltip Popover */}
-                          <div className="absolute left-1/2 -translate-x-1/2 md:left-auto md:right-0 md:translate-x-0 bottom-full mb-2.5 hidden group-hover:block w-72 bg-slate-900 border border-slate-800 text-white text-xs rounded-xl p-3.5 shadow-xl z-50 leading-relaxed font-sans normal-case tracking-normal">
-                            <div className="font-bold text-teal-400 mb-1.5 flex items-center gap-1 text-[11px]">
-                              <span>💡 Cara Upload Berkas di Filebin:</span>
-                            </div>
-                            <ol className="list-decimal list-inside space-y-1.5 text-slate-200 text-[10.5px]">
-                              <li>Buka situs <a href="https://filebin.net/" target="_blank" rel="noopener noreferrer" className="text-teal-300 underline font-black hover:text-teal-200">filebin.net</a></li>
-                              <li>Klik tombol upload atau langsung seret berkas tugas Anda ke area unggah.</li>
-                              <li>Tunggu progres unggahan selesai (100%).</li>
-                              <li>Salin (copy) tautan/URL halaman dari address bar browser Anda.</li>
-                              <li>Tempelkan (paste) tautan tersebut ke kolom input di bawah ini.</li>
-                            </ol>
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 md:left-auto md:right-2 md:translate-x-0 w-2 h-2 bg-slate-900 border-r border-b border-slate-800 transform rotate-45 -mt-[4px]"></div>
+                    {/* Form enabled submission link */}
+                    {isModalSubmitted ? (
+                      <div className="border-t border-slate-100 pt-5 space-y-4">
+                        <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-start gap-2.5">
+                          <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
+                          <div>
+                            <h4 className="font-extrabold text-green-950 text-xs text-left mb-1">
+                              Tugas Telah Berhasil Dikumpulkan
+                            </h4>
+                            <p className="text-[11px] text-green-700 leading-relaxed text-left">
+                              Anda telah menyelesaikan tugas ini pada tanggal: <strong>{modalStudentGrade?.submittedAt ? new Date(modalStudentGrade.submittedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB' : '-'}</strong>.
+                            </p>
                           </div>
                         </div>
+
+                        {activeAsgDetail.formEnabled && (
+                          <div className="space-y-1.5 text-left">
+                            <label className="block text-2xs font-extrabold text-slate-400 uppercase tracking-widest">
+                              Tautan Laporan Tugas Terdaftar (Terkunci):
+                            </label>
+                            <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] text-slate-650">
+                              <span className="truncate flex-1">{modalStudentGrade?.submissionLink || '-'}</span>
+                              {modalStudentGrade?.submissionLink && modalStudentGrade.submissionLink !== 'Form submission not required' && (
+                                <a
+                                  href={modalStudentGrade.submissionLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-teal-700 hover:text-teal-800 font-extrabold shrink-0 inline-flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-3xs hover:shadow-2xs transition"
+                                >
+                                  Buka Tautan <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Disabled Send Button */}
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full bg-slate-100 text-slate-400 border border-slate-200 font-bold py-3.5 rounded-xl flex items-center justify-center gap-1.5 cursor-not-allowed text-xs transition"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-slate-400" /> Pengiriman Jawaban Nonaktif (Telah Selesai)
+                        </button>
                       </div>
-                      <input
-                        type="url"
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600 bg-white font-mono"
-                        placeholder="https://drive.google.com/file/d/..."
-                        value={submissionUrl}
-                        onChange={(e) => setSubmissionUrl(e.target.value)}
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <Send className="w-3.5 h-3.5" /> Kirim Jawaban Sekarang
-                    </button>
-                  </form>
-                ) : (
-                  <form onSubmit={handleSubmitWork} className="border-t border-slate-100 pt-4">
-                    <p className="text-[10px] text-amber-600 bg-amber-50 rounded-lg p-2.5 border border-amber-100 leading-relaxed font-semibold">
-                      ※ Tugas ini tidak memerlukan pengiriman berkas di sistem. Anda dapat langsung merampungkan latihan pada link platform di atas. Namun, harap klik tombol konfirmasi selesai di bawah agar ustadz/ustadzah tahu Anda telah merampungkannya.
-                    </p>
-                    <button
-                      type="submit"
-                      className="w-full bg-teal-600 hover:bg-teal-750 text-white font-bold py-3 rounded-xl mt-3 cursor-pointer"
-                    >
-                      Konfirmasi Selesai Mengerjakan
-                    </button>
-                  </form>
+                    ) : activeAsgDetail.formEnabled ? (
+                      <form onSubmit={handleSubmitWork} className="border-t border-slate-100 pt-4 space-y-3">
+                        <div>
+                          <div className="flex items-center gap-1.5 mb-1.5 text-left relative">
+                            <label className="block text-2xs font-bold text-slate-400 uppercase tracking-widest">
+                              Kumpulkan Tautan Laporan Tugas (Filebin, Google Drive, Canva dll)
+                            </label>
+                            <div className="relative group inline-flex items-center">
+                              <Info className="w-3.5 h-3.5 text-slate-400 hover:text-teal-600 transition-colors cursor-pointer" />
+                              
+                              {/* Beautiful Interactive Tooltip Popover */}
+                              <div className="absolute left-1/2 -translate-x-1/2 md:left-auto md:right-0 md:translate-x-0 bottom-full mb-2.5 hidden group-hover:block w-72 bg-slate-900 border border-slate-800 text-white text-xs rounded-xl p-3.5 shadow-xl z-50 leading-relaxed font-sans normal-case tracking-normal">
+                                <div className="font-bold text-teal-400 mb-1.5 flex items-center gap-1 text-[11px]">
+                                  <span>💡 Cara Upload Berkas di Filebin:</span>
+                                </div>
+                                <ol className="list-decimal list-inside space-y-1.5 text-slate-200 text-[10.5px]">
+                                  <li>Buka situs <a href="https://filebin.net/" target="_blank" rel="noopener noreferrer" className="text-teal-300 underline font-black hover:text-teal-200">filebin.net</a></li>
+                                  <li>Klik tombol upload atau langsung seret berkas tugas Anda ke area unggah.</li>
+                                  <li>Tunggu progres unggahan selesai (100%).</li>
+                                  <li>Salin (copy) tautan/URL halaman dari address bar browser Anda.</li>
+                                  <li>Tempelkan (paste) tautan tersebut ke kolom input di bawah ini.</li>
+                                </ol>
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 md:left-auto md:right-2 md:translate-x-0 w-2 h-2 bg-slate-900 border-r border-b border-slate-800 transform rotate-45 -mt-[4px]"></div>
+                              </div>
+                            </div>
+                          </div>
+                          <input
+                            type="url"
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-teal-600 bg-white font-mono"
+                            placeholder="https://drive.google.com/file/d/..."
+                            value={submissionUrl}
+                            onChange={(e) => setSubmissionUrl(e.target.value)}
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5" /> Kirim Jawaban Sekarang
+                        </button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleSubmitWork} className="border-t border-slate-100 pt-4">
+                        <p className="text-[10px] text-amber-600 bg-amber-50 rounded-lg p-2.5 border border-amber-100 leading-relaxed font-semibold">
+                          ※ Tugas ini tidak memerlukan pengiriman berkas di sistem. Anda dapat langsung merampungkan latihan pada link platform di atas. Namun, harap klik tombol konfirmasi selesai di bawah agar ustadz/ustadzah tahu Anda telah merampungkannya.
+                        </p>
+                        <button
+                          type="submit"
+                          className="w-full bg-teal-600 hover:bg-teal-750 text-white font-bold py-3 rounded-xl mt-3 cursor-pointer"
+                        >
+                          Konfirmasi Selesai Mengerjakan
+                        </button>
+                      </form>
+                    )}
+                  </>
                 )}
 
               </div>
