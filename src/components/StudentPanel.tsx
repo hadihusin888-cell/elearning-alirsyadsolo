@@ -125,7 +125,8 @@ export default function StudentPanel() {
   // State
   const [selectedMapelFilter, setSelectedMapelFilter] = useState<string>('');
   const [selectedGradeMapelFilter, setSelectedGradeMapelFilter] = useState<string>('');
-  const [tugasStatusFilter, setTugasStatusFilter] = useState<'ACTIVE' | 'ALL' | 'CLOSED'>('ACTIVE');
+  const [selectedTugasMapelFilter, setSelectedTugasMapelFilter] = useState<string>('');
+  const [tugasStatusFilter, setTugasStatusFilter] = useState<'ACTIVE' | 'ALL' | 'CLOSED'>('ALL');
   const [activeAsgDetail, setActiveAsgDetail] = useState<Assignment | null>(null);
   const [activeMaterialDetail, setActiveMaterialDetail] = useState<Material | null>(null);
   const [submissionUrl, setSubmissionUrl] = useState('');
@@ -655,19 +656,34 @@ export default function StudentPanel() {
 
         {/* TAB 3: TUGAS SAYA */}
         {activeTab === 'tugas' && (() => {
-          const openAssignments = studentAssignments.filter(a => !isDeadlinePassed(a.dueDate));
-          const closedAssignments = studentAssignments.filter(a => isDeadlinePassed(a.dueDate));
+          const mapelFilteredAssignments = selectedTugasMapelFilter
+            ? studentAssignments.filter(a => a.subjectId === selectedTugasMapelFilter)
+            : studentAssignments;
+
+          const openAssignments = mapelFilteredAssignments.filter(a => !isDeadlinePassed(a.dueDate));
+          const closedAssignments = mapelFilteredAssignments.filter(a => isDeadlinePassed(a.dueDate));
           const displayedAssignments = tugasStatusFilter === 'ACTIVE'
             ? openAssignments
             : tugasStatusFilter === 'CLOSED'
             ? closedAssignments
-            : studentAssignments;
+            : mapelFilteredAssignments;
 
           return (
             <div className="space-y-5">
-              {/* Filter Tabs & Info */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200/80">
-                <div className="flex items-center gap-1.5 overflow-x-auto">
+              {/* Filter Tabs & Mapel Dropdown */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200/80">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTugasStatusFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      tugasStatusFilter === 'ALL'
+                        ? 'bg-teal-700 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Semua Tugas ({mapelFilteredAssignments.length})
+                  </button>
                   <button
                     type="button"
                     onClick={() => setTugasStatusFilter('ACTIVE')}
@@ -690,26 +706,39 @@ export default function StudentPanel() {
                   >
                     <Lock className="w-3 h-3" /> Tugas Ditutup ({closedAssignments.length})
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setTugasStatusFilter('ALL')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      tugasStatusFilter === 'ALL'
-                        ? 'bg-slate-800 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Semua ({studentAssignments.length})
-                  </button>
                 </div>
-                <p className="text-[11px] text-slate-400 italic text-left sm:text-right">
-                  ※ Tugas yang melewati batas waktu otomatis ditutup sistem.
-                </p>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">
+                    <BookOpen className="w-4 h-4 text-teal-700 shrink-0" />
+                    <select
+                      value={selectedTugasMapelFilter}
+                      onChange={(e) => setSelectedTugasMapelFilter(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer w-full sm:w-auto"
+                    >
+                      <option value="">-- Semua Mata Pelajaran --</option>
+                      {subjects.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedTugasMapelFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTugasMapelFilter('')}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 px-2 py-1.5 rounded-lg border border-rose-150 transition cursor-pointer self-start sm:self-center"
+                    >
+                      Reset Filter
+                    </button>
+                  )}
+                </div>
               </div>
 
               {displayedAssignments.length === 0 ? (
                 <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">
-                  {tugasStatusFilter === 'ACTIVE'
+                  {selectedTugasMapelFilter
+                    ? 'Tidak ada tugas untuk mata pelajaran yang dipilih pada kategori ini.'
+                    : tugasStatusFilter === 'ACTIVE'
                     ? 'Alhamdulillah! Tidak ada tugas aktif yang sedang berlangsung untuk kelas Anda saat ini (tugas yang melewati tenggat waktu otomatis ditutup).'
                     : tugasStatusFilter === 'CLOSED'
                     ? 'Tidak ada tugas yang ditutup karena batas waktu.'
