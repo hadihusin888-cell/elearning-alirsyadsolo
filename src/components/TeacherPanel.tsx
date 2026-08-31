@@ -127,9 +127,28 @@ export default function TeacherPanel() {
     );
   }, [classes]);
 
-  // Identify teacher
-  const currentTeacher = teachers.find(t => t.id === currentUser?.id);
+  // Identify teacher reliably
+  const currentTeacher = teachers.find(t => 
+    t.id === currentUser?.id || 
+    t.nik === currentUser?.id || 
+    (t.nik && String(t.nik).trim() === String(currentUser?.id).trim()) ||
+    (t.id && String(t.id).trim() === String(currentUser?.id).trim()) ||
+    (currentUser?.meta?.nik && (t.id === currentUser.meta.nik || t.nik === currentUser.meta.nik)) ||
+    (currentUser?.name && t.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim())
+  );
   const teacherSubjects = currentTeacher?.subjectsTaught || [];
+
+  // Teacher identifier list for entity ownership matching
+  const teacherIdList = useMemo(() => {
+    return [
+      currentUser?.id,
+      currentTeacher?.id,
+      currentTeacher?.nik,
+      currentUser?.meta?.nik,
+      currentUser?.name,
+      currentTeacher?.name
+    ].filter(Boolean).map(v => String(v).trim().toLowerCase());
+  }, [currentUser, currentTeacher]);
 
   // Flatten active classes & subjects this teacher actually teaches (normalize 8B_PUTRI -> 8B)
   const rawClassIds = Array.from(new Set(teacherSubjects.flatMap(s => s.classIds || [])));
@@ -472,9 +491,19 @@ export default function TeacherPanel() {
     }));
   };
 
-  // Filter entities created by this teacher & consolidate
-  const rawTeacherMaterials = materials.filter(m => m.teacherId === currentUser?.id);
-  const rawTeacherAssignments = assignments.filter(a => a.teacherId === currentUser?.id);
+  // Filter entities created by this teacher or teacher's taught subjects & consolidate
+  const isTeacherEntity = (entityTeacherId: string, entitySubjectId?: string) => {
+    const eTId = String(entityTeacherId || '').trim().toLowerCase();
+    if (!eTId) return false;
+    if (teacherIdList.includes(eTId)) return true;
+    if (entitySubjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(entitySubjectId).trim().toLowerCase())) {
+      return true;
+    }
+    return false;
+  };
+
+  const rawTeacherMaterials = materials.filter(m => isTeacherEntity(m.teacherId, m.subjectId));
+  const rawTeacherAssignments = assignments.filter(a => isTeacherEntity(a.teacherId, a.subjectId));
 
   const teacherMaterials = getConsolidatedMaterials(rawTeacherMaterials);
   const teacherAssignments = getConsolidatedAssignments(rawTeacherAssignments);
@@ -492,89 +521,87 @@ export default function TeacherPanel() {
     return targetClasses.some(c => c.startsWith(tGradeFilter));
   });
 
-  // Helper to find student for any grade document reliably
+  // Helper to find student for any grade document reliably across ID, NIS, Name
   const getGradeStudent = (studentIdVal: string) => {
-    const sId = String(studentIdVal || '').trim();
+    if (!studentIdVal) return undefined;
+    const sId = String(studentIdVal).trim().toLowerCase();
     return students.find(s => 
-      s.id === sId || 
-      s.nis === sId || 
-      (s.nis && String(s.nis).trim() === sId)
+      String(s.id || '').trim().toLowerCase() === sId || 
+      String(s.nis || '').trim().toLowerCase() === sId ||
+      String(s.name || '').trim().toLowerCase() === sId
     );
   };
 
-  // Helper to normalize any class string to a canonical token (e.g., '8b_putra', '7a_putri', '7a_putra', etc.)
-  const getCanonicalClassToken = (val: string) => {
-    if (!val) return '';
-    const trimmed = String(val).trim().toLowerCase();
-    
-    // Any 8B variant maps strictly to 8b_putra
-    if (
-      trimmed === '8b' ||
-      trimmed === '8b_putri' ||
-      trimmed === '8b_putra' ||
-      trimmed === '8b putri' ||
-      trimmed === '8b putra' ||
-      trimmed === 'kelas 8b' ||
-      trimmed === 'kelas 8b_putri' ||
-      trimmed === 'kelas 8b_putra' ||
-      trimmed === 'kelas 8b putri' ||
-      trimmed === 'kelas 8b putra' ||
-      trimmed.includes('8b')
-    ) {
-      return '8b_putra';
-    }
-
-    return trimmed
-      .replace(/^kelas\s+/, '')
-      .replace(/^cls[-_]/, '')
-      .replace(/[\s\-_]+/g, '_')
+  // Helper to normalize any class string to a canonical token (e.g., '7a', '8b', '7b', etc.)
+  const normalizeClassKey = (str: string) => {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .replace(/^kelas\s+/i, '')
+      .replace(/^cls[-_]/i, '')
+      .replace(/_putri|_putra/gi, '')
+      .replace(/\s+(putri|putra)/gi, '')
+      .replace(/[^a-z0-9]/g, '')
       .trim();
   };
+
+  // Backward compatibility alias for canonical tokens
+  const getCanonicalClassToken = (val: string) => normalizeClassKey(val);
 
   // Helper to check if a student belongs to a specific target class filter
   const isStudentInTargetClass = (studentClassId: string, gradeClassId: string, targetFilter: string) => {
     if (!targetFilter) return true;
-    const targetToken = getCanonicalClassToken(targetFilter);
+    const targetKey = normalizeClassKey(targetFilter);
     const targetClassObj = classes.find(c => c.id === targetFilter || c.name === targetFilter);
-    const targetTokens = Array.from(new Set([
-      targetToken,
-      getCanonicalClassToken(targetClassObj?.id || ''),
-      getCanonicalClassToken(targetClassObj?.name || ''),
-      getCanonicalClassToken(formatClassLabel(targetFilter))
-    ].filter(Boolean)));
+    const targetObjKey = normalizeClassKey(targetClassObj?.name || targetClassObj?.id || '');
 
-    const sClassToken = getCanonicalClassToken(studentClassId);
-    const gClassToken = getCanonicalClassToken(gradeClassId);
+    const sKey = normalizeClassKey(studentClassId);
+    const gKey = normalizeClassKey(gradeClassId);
 
-    return targetTokens.some(t => t === sClassToken || (sClassToken === '' && t === gClassToken));
+    // 1. Normalized comparison (covers '7A' === 'Kelas 7A' === '7a_putri' etc.)
+    if (sKey && (sKey === targetKey || sKey === targetObjKey)) return true;
+    if (gKey && (gKey === targetKey || gKey === targetObjKey)) return true;
+
+    // 2. Direct string comparison & partial includes
+    const rawTargetLower = targetFilter.toLowerCase().trim();
+    const rawSLower = String(studentClassId || '').toLowerCase().trim();
+    const rawGLower = String(gradeClassId || '').toLowerCase().trim();
+
+    if (rawSLower && (rawSLower === rawTargetLower || rawTargetLower.includes(rawSLower) || rawSLower.includes(rawTargetLower))) return true;
+    if (rawGLower && (rawGLower === rawTargetLower || rawTargetLower.includes(rawGLower) || rawGLower.includes(rawTargetLower))) return true;
+
+    return false;
   };
 
   // Assignments filtered by selectedClassFilter (for grading assignment dropdown)
   const classAssignments = teacherAssignments.filter(a => {
     if (!selectedClassFilter) return false;
-    const targetToken = getCanonicalClassToken(selectedClassFilter);
+    const targetKey = normalizeClassKey(selectedClassFilter);
     const targetClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
-    const targetTokens = Array.from(new Set([
-      targetToken,
-      getCanonicalClassToken(targetClassObj?.id || ''),
-      getCanonicalClassToken(targetClassObj?.name || ''),
-      getCanonicalClassToken(formatClassLabel(selectedClassFilter))
-    ].filter(Boolean)));
+    const targetObjKey = normalizeClassKey(targetClassObj?.name || targetClassObj?.id || '');
 
     const asgClasses = (a.classIdsArray && a.classIdsArray.length > 0)
       ? a.classIdsArray
       : (a.classId ? a.classId.split(',').map(c => c.trim()) : []);
 
     return asgClasses.some(c => {
-      const cToken = getCanonicalClassToken(c);
-      return targetTokens.includes(cToken);
+      const cKey = normalizeClassKey(c);
+      return cKey === targetKey || cKey === targetObjKey || c.toLowerCase().includes(targetKey) || targetKey.includes(cKey);
     });
   });
 
   // Gather grades filtered by assignments made by this teacher, selected class, assignment, and status
   const currentGrades = grades.filter(g => {
-    const isTeacherAsg = teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-                         assignments.some(a => a.id === g.assignmentId && (a.teacherId === currentUser?.id || a.teacherId === currentTeacher?.id || a.teacherId === currentTeacher?.nik));
+    const isTeacherAsg = 
+      teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+      assignments.some(a => {
+        if (a.id !== g.assignmentId) return false;
+        const aTId = String(a.teacherId || '').trim().toLowerCase();
+        const aSubId = String(a.subjectId || '').trim().toLowerCase();
+        return teacherIdList.includes(aTId) || activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(aSubId);
+      }) ||
+      (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase()));
+
     if (!isTeacherAsg) return false;
     if (g.status === 'RESET' || g.status === 'NOT_SUBMITTED') return false;
 
@@ -847,11 +874,19 @@ export default function TeacherPanel() {
   };
 
   // Calculate statistics
-  const ungradedCount = grades.filter(g => 
-    (teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-     assignments.some(a => a.id === g.assignmentId && (a.teacherId === currentUser?.id || a.teacherId === currentTeacher?.id || a.teacherId === currentTeacher?.nik))) && 
-    g.status === 'SUBMITTED'
-  ).length;
+  const ungradedCount = grades.filter(g => {
+    const isTeacherAsg = 
+      teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+      assignments.some(a => {
+        if (a.id !== g.assignmentId) return false;
+        const aTId = String(a.teacherId || '').trim().toLowerCase();
+        const aSubId = String(a.subjectId || '').trim().toLowerCase();
+        return teacherIdList.includes(aTId) || activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(aSubId);
+      }) ||
+      (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase()));
+
+    return isTeacherAsg && g.status === 'SUBMITTED';
+  }).length;
 
   return (
     <div id="teacher-shell" className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -1065,26 +1100,41 @@ export default function TeacherPanel() {
                   <p className="text-xs text-slate-400 italic text-center py-6">Semua pengumpulan tugas terkoreksi habis! Bagus sekali!</p>
                 ) : (
                   <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                    {(grades || []).filter(g => (
-                      teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-                      assignments.some(a => a.id === g.assignmentId && (a.teacherId === currentUser?.id || a.teacherId === currentTeacher?.id || a.teacherId === currentTeacher?.nik))
-                    ) && g.status === 'SUBMITTED').map(g => {
+                    {(grades || []).filter(g => {
+                      const isTeacherAsg = 
+                        teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
+                        assignments.some(a => {
+                          if (a.id !== g.assignmentId) return false;
+                          const aTId = String(a.teacherId || '').trim().toLowerCase();
+                          const aSubId = String(a.subjectId || '').trim().toLowerCase();
+                          return teacherIdList.includes(aTId) || activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(aSubId);
+                        }) ||
+                        (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase()));
+
+                      return isTeacherAsg && g.status === 'SUBMITTED';
+                    }).map(g => {
                       const asg = teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
                                   assignments.find(a => a.id === g.assignmentId);
                       const std = getGradeStudent(g.studentId);
+                      const studentClass = std?.classId || g.classId || '';
                       return (
                         <div key={g.id} className="py-3 flex items-center justify-between gap-3 text-xs">
                           <div>
                             <p className="font-bold text-slate-900 truncate max-w-xs">{std?.name || g.studentId}</p>
-                            <p className="text-[10px] text-slate-400">{asg?.title || 'Tugas'} • {formatClassLabel(g.classId || std?.classId || '')}</p>
+                            <p className="text-[10px] text-slate-400">{asg?.title || 'Tugas'} • {formatClassLabel(studentClass)}</p>
                           </div>
                           <button
                             onClick={() => { 
                               setActiveTab('nilai'); 
-                              if (g.classId || std?.classId) setSelectedClassFilter(g.classId || std?.classId || '');
+                              if (studentClass) {
+                                const targetKey = normalizeClassKey(studentClass);
+                                const matchedClass = databaseClasses.find(c => normalizeClassKey(c.id) === targetKey || normalizeClassKey(c.name) === targetKey);
+                                setSelectedClassFilter(matchedClass?.id || studentClass);
+                              }
                               setSelectedAsgFilter(g.assignmentId); 
+                              setSelectedStatusFilter('ALL');
                             }}
-                            className="bg-slate-950 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-teal-700 transition"
+                            className="bg-slate-950 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-teal-700 transition cursor-pointer"
                           >
                             Koreksi
                           </button>
@@ -1445,12 +1495,18 @@ export default function TeacherPanel() {
                     >
                       <option value="">-- Pilih Kelas --</option>
                       {databaseClasses
-                        .filter(c => 
-                          activeClassIds.length === 0 ||
-                          activeClassIds.includes(c.id) || 
-                          activeClassIds.includes(c.name) || 
-                          teacherAssignments.some(a => (a.classId || '').includes(c.name) || (a.classId || '').includes(c.id))
-                        )
+                        .filter(c => {
+                          if (activeClassIds.length === 0) return true;
+                          const cKey = normalizeClassKey(c.id || c.name);
+                          const isTeacherClass = activeClassIds.some(ac => normalizeClassKey(ac) === cKey);
+                          const hasAssignmentInClass = teacherAssignments.some(a => {
+                            const asgClasses = (a.classIdsArray && a.classIdsArray.length > 0)
+                              ? a.classIdsArray
+                              : (a.classId ? a.classId.split(',').map(cl => cl.trim()) : []);
+                            return asgClasses.some(cl => normalizeClassKey(cl) === cKey);
+                          });
+                          return isTeacherClass || hasAssignmentInClass;
+                        })
                         .map(c => (
                           <option key={c.id} value={c.id}>{formatClassLabel(c.name || c.id)}</option>
                         ))}

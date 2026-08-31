@@ -137,7 +137,7 @@ export const INITIAL_ASSIGNMENTS: Assignment[] = [
     description: 'Setor hafalan dalam bentuk video/audio link atau isi form dengan link rekaman suara kalian.',
     dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days from now
     link: 'https://forms.google.com/example-kahfi',
-    classId: '7A',
+    classId: '7A, 7B, 8A',
     subjectId: 'PAI',
     teacherId: '19810201',
     formEnabled: true,
@@ -149,7 +149,7 @@ export const INITIAL_ASSIGNMENTS: Assignment[] = [
     description: 'Kerjakan kuis Aljabar berikut untuk melatih pemahaman persamaan linear satu variabel.',
     dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
     link: 'https://quizizz.com/join?gc=123456',
-    classId: '7A',
+    classId: '7A, 7B',
     subjectId: 'MTK',
     teacherId: '19830512',
     formEnabled: false,
@@ -161,7 +161,31 @@ export const INITIAL_ASSIGNMENTS: Assignment[] = [
     description: 'Ikuti instruksi praktikum di rumah menggunakan daun, alkohol, dan iodin. Laporkan foto hasil uji.',
     dueDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     link: 'https://docs.google.com/document/d/example-fotosintesis',
-    classId: '8A',
+    classId: '8A, 8B',
+    subjectId: 'IPA',
+    teacherId: '19870915',
+    formEnabled: true,
+    createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 'asg_4',
+    title: 'Vocabulary & Self Introduction Practice',
+    description: 'Tuliskan rekaman perkenalan diri dan kosa kata Bahasa Inggris sesuai topik unit 1.',
+    dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    link: 'https://docs.google.com/document/d/example-intro',
+    classId: '7A',
+    subjectId: 'ING',
+    teacherId: '19830512',
+    formEnabled: true,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'asg_5',
+    title: 'Laporan Pengamatan Ekosistem dan Rantai Makanan',
+    description: 'Buatlah skema jaring-jaring makanan di lingkungan sekitar dan unggah file laporannya.',
+    dueDate: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    link: 'https://docs.google.com/document/d/example-ekosistem',
+    classId: '8B',
     subjectId: 'IPA',
     teacherId: '19870915',
     formEnabled: true,
@@ -192,5 +216,74 @@ export const INITIAL_GRADES: Grade[] = [
     submissionLink: 'https://drive.google.com/file/d/rec-siti',
     status: 'SUBMITTED',
     submittedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString() // 12 hours ago
+  },
+  {
+    id: 'grad_3',
+    studentId: '202401', // Muhammad Ali (7A)
+    assignmentId: 'asg_2', // Kuis Aljabar MTK
+    subjectId: 'MTK',
+    classId: '7A',
+    submissionLink: 'https://quizizz.com/join?gc=123456&player=ali',
+    status: 'SUBMITTED',
+    submittedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 'grad_4',
+    studentId: '202402', // Siti Aminah (7A)
+    assignmentId: 'asg_2', // Kuis Aljabar MTK
+    subjectId: 'MTK',
+    classId: '7A',
+    grade: 95,
+    feedback: 'Penyelesaian aljabar sangat teliti dan runtut. Bagus sekali!',
+    submissionLink: 'https://quizizz.com/join?gc=123456&player=siti',
+    status: 'GRADED',
+    submittedAt: new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString(),
+    gradedAt: new Date().toISOString()
+  },
+  {
+    id: 'grad_5',
+    studentId: '202405', // Yusuf Al-Fatih (8B)
+    assignmentId: 'asg_3', // Praktikum IPA Fotosintesis
+    subjectId: 'IPA',
+    classId: '8B',
+    submissionLink: 'https://drive.google.com/file/d/praktikum-fotosintesis-yusuf',
+    status: 'SUBMITTED',
+    submittedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 'grad_6',
+    studentId: '202405', // Yusuf Al-Fatih (8B)
+    assignmentId: 'asg_5', // Ekosistem IPA
+    subjectId: 'IPA',
+    classId: '8B',
+    grade: 88,
+    feedback: 'Analisis rantai makanan lengkap dan gambar ilustrasi rapi.',
+    submissionLink: 'https://docs.google.com/document/d/laporan-yusuf-8b',
+    status: 'GRADED',
+    submittedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    gradedAt: new Date().toISOString()
+  },
+  {
+    id: 'grad_7',
+    studentId: '202404', // Aisyah Humaira (8A)
+    assignmentId: 'asg_3', // Praktikum IPA
+    subjectId: 'IPA',
+    classId: '8A',
+    grade: 92,
+    feedback: 'Hasil uji daun sangat jelas dan laporan disajikan sistematis.',
+    submissionLink: 'https://drive.google.com/file/d/praktikum-aisyah',
+    status: 'GRADED',
+    submittedAt: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString(),
+    gradedAt: new Date().toISOString()
+  },
+  {
+    id: 'grad_8',
+    studentId: '202403', // Rizky Ramadhan (7B)
+    assignmentId: 'asg_1', // Hafalan Kahfi
+    subjectId: 'PAI',
+    classId: '7B',
+    submissionLink: 'https://drive.google.com/file/d/rec-rizky',
+    status: 'SUBMITTED',
+    submittedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
   }
 ];
