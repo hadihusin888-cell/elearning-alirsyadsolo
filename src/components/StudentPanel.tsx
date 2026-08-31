@@ -115,11 +115,18 @@ export default function StudentPanel() {
       currentStudent?.id,
       currentStudent?.nis,
       currentUser?.meta?.nis
-    ].filter(Boolean).map(id => String(id));
+    ].filter(Boolean).map(id => String(id).trim().toLowerCase());
 
-    return grades.find(g => 
-      validStudentIds.includes(String(g.studentId)) && g.assignmentId === asgId
-    );
+    const cleanNumerics = validStudentIds.map(id => id.replace(/[^0-9]/g, '')).filter(Boolean);
+
+    return grades.find(g => {
+      if (g.assignmentId !== asgId) return false;
+      const gSid = String(g.studentId || '').trim().toLowerCase();
+      if (validStudentIds.includes(gSid)) return true;
+      const cleanG = gSid.replace(/[^0-9]/g, '');
+      if (cleanG && cleanNumerics.includes(cleanG)) return true;
+      return false;
+    });
   };
 
   // State
@@ -828,20 +835,20 @@ export default function StudentPanel() {
           <div className="space-y-5">
             {(() => {
               const gradedAssignments = studentAssignments.filter(a => {
-                const grd = grades.find(g => g.studentId === currentUser?.id && g.assignmentId === a.id);
-                return grd && grd.status === 'GRADED' && grd.grade !== undefined;
+                const grd = findStudentGrade(a.id);
+                return grd && grd.status === 'GRADED' && grd.grade !== undefined && grd.grade !== null;
               });
 
               const totalGraded = gradedAssignments.length;
               const averageGrade = totalGraded > 0
                 ? Math.round(gradedAssignments.reduce((acc, a) => {
-                    const grd = grades.find(g => g.studentId === currentUser?.id && g.assignmentId === a.id);
-                    return acc + (grd?.grade || 0);
+                    const grd = findStudentGrade(a.id);
+                    return acc + (Number(grd?.grade) || 0);
                   }, 0) / totalGraded)
                 : 0;
 
               const completedCount = studentAssignments.filter(a => {
-                const grd = grades.find(g => g.studentId === currentUser?.id && g.assignmentId === a.id);
+                const grd = findStudentGrade(a.id);
                 return grd && (grd.status === 'SUBMITTED' || grd.status === 'GRADED');
               }).length;
 

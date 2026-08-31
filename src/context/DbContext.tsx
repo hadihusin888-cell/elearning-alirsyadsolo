@@ -1356,7 +1356,16 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       resolvedClassId = currentUser.meta?.classId || '';
     }
 
-    const existingIndex = grades.findIndex(g => g.studentId === studentId && g.assignmentId === assignmentId);
+    const normStr = (s: string) => (s || '').trim().toLowerCase();
+    const cleanNumStr = (s: string) => (s || '').replace(/[^0-9]/g, '');
+
+    const existingIndex = grades.findIndex(g => {
+      const sameStudent = 
+        normStr(g.studentId) === normStr(studentId) ||
+        (cleanNumStr(g.studentId).length >= 2 && cleanNumStr(g.studentId) === cleanNumStr(studentId));
+      const sameAsg = normStr(g.assignmentId) === normStr(assignmentId);
+      return sameStudent && sameAsg;
+    });
     
     const submittedGrade: Grade = {
       id: existingIndex >= 0 ? grades[existingIndex].id : `GRAD_${studentId}_${assignmentId}`,
