@@ -84,6 +84,13 @@ export const INITIAL_STUDENTS: Student[] = [
     name: 'Yusuf Al-Fatih Al-Anshori',
     classId: '8B',
     password: '202405'
+  },
+  {
+    id: '4789',
+    nis: '4789',
+    name: 'Ahmad Fathir Rabbani',
+    classId: '7A',
+    password: '4789'
   }
 ];
 
@@ -285,5 +292,25 @@ export const INITIAL_GRADES: Grade[] = [
     submissionLink: 'https://drive.google.com/file/d/rec-rizky',
     status: 'SUBMITTED',
     submittedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 'grad_9',
+    studentId: '4789', // Ahmad Fathir (7A)
+    assignmentId: 'asg_2', // Kuis Aljabar MTK
+    subjectId: 'MTK',
+    classId: '7A',
+    submissionLink: 'https://quizizz.com/join?gc=123456&player=fathir4789',
+    status: 'SUBMITTED',
+    submittedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 'grad_10',
+    studentId: '4789', // Ahmad Fathir (7A)
+    assignmentId: 'asg_1', // Hafalan Kahfi
+    subjectId: 'PAI',
+    classId: '7A',
+    submissionLink: 'https://drive.google.com/file/d/rec-fathir-4789',
+    status: 'SUBMITTED',
+    submittedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
   }
 ];

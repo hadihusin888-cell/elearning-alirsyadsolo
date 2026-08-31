@@ -494,9 +494,22 @@ export default function TeacherPanel() {
   // Filter entities created by this teacher or teacher's taught subjects & consolidate
   const isTeacherEntity = (entityTeacherId: string, entitySubjectId?: string) => {
     const eTId = String(entityTeacherId || '').trim().toLowerCase();
-    if (!eTId) return false;
-    if (teacherIdList.includes(eTId)) return true;
-    if (entitySubjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(entitySubjectId).trim().toLowerCase())) {
+    if (eTId && teacherIdList.includes(eTId)) return true;
+    if (entitySubjectId) {
+      const sId = String(entitySubjectId).trim().toLowerCase();
+      if (activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(sId)) return true;
+      const matchedSub = subjects.find(s => s.id === entitySubjectId || s.name === entitySubjectId);
+      if (matchedSub) {
+        const subIdNorm = (matchedSub.id || '').toLowerCase().trim();
+        const subNameNorm = (matchedSub.name || '').toLowerCase().trim();
+        if (activeSubjectIds.some(as => {
+          const asNorm = String(as).toLowerCase().trim();
+          return asNorm === subIdNorm || asNorm === subNameNorm;
+        })) return true;
+      }
+    }
+    // If teacher profile has no specific subjects assigned, permit all school entities
+    if (teacherSubjects.length === 0) {
       return true;
     }
     return false;
@@ -521,15 +534,36 @@ export default function TeacherPanel() {
     return targetClasses.some(c => c.startsWith(tGradeFilter));
   });
 
-  // Helper to find student for any grade document reliably across ID, NIS, Name
+  // Helper to find student for any grade document reliably across ID, NIS, Name & Numeric token (e.g., NIS 4789)
   const getGradeStudent = (studentIdVal: string) => {
     if (!studentIdVal) return undefined;
     const sId = String(studentIdVal).trim().toLowerCase();
-    return students.find(s => 
-      String(s.id || '').trim().toLowerCase() === sId || 
-      String(s.nis || '').trim().toLowerCase() === sId ||
-      String(s.name || '').trim().toLowerCase() === sId
-    );
+    const cleanNumeric = sId.replace(/[^0-9]/g, '');
+
+    return students.find(s => {
+      const sid = String(s.id || '').trim().toLowerCase();
+      const snis = String(s.nis || '').trim().toLowerCase();
+      const sname = String(s.name || '').trim().toLowerCase();
+      const cleanSnis = snis.replace(/[^0-9]/g, '');
+      const cleanSid = sid.replace(/[^0-9]/g, '');
+
+      // 1. Direct exact equality
+      if (sid === sId || snis === sId || sname === sId) return true;
+
+      // 2. Numeric NIS match (e.g. "4789" matches "4789", "STD_4789", or NIS 4789)
+      if (cleanNumeric && cleanNumeric.length >= 2) {
+        if (cleanSnis === cleanNumeric || cleanSid === cleanNumeric) return true;
+      }
+
+      // 3. Substring inclusion
+      if (sId.length >= 3) {
+        if (sid.includes(sId) || sId.includes(sid) || snis.includes(sId) || sId.includes(snis)) {
+          return true;
+        }
+      }
+
+      return false;
+    });
   };
 
   // Helper to normalize any class string to a canonical token (e.g., '7a', '8b', '7b', etc.)
@@ -545,37 +579,63 @@ export default function TeacherPanel() {
       .trim();
   };
 
+  // Extract all class keys from a class string (handles comma-separated lists like "7A, 7B")
+  const extractClassTokens = (raw: string | undefined): string[] => {
+    if (!raw) return [];
+    const str = String(raw).trim();
+    if (!str) return [];
+    const splits = str.split(/[,;/]|\s+dan\s+/i).map(s => s.trim()).filter(Boolean);
+    const tokens: string[] = [];
+    splits.forEach(part => {
+      const key = normalizeClassKey(part);
+      if (key) tokens.push(key);
+      const rawLower = part.toLowerCase();
+      if (rawLower) tokens.push(rawLower);
+    });
+    const wholeKey = normalizeClassKey(str);
+    if (wholeKey) tokens.push(wholeKey);
+    tokens.push(str.toLowerCase());
+    return Array.from(new Set(tokens));
+  };
+
   // Backward compatibility alias for canonical tokens
   const getCanonicalClassToken = (val: string) => normalizeClassKey(val);
 
   // Helper to check if a student belongs to a specific target class filter
   const isStudentInTargetClass = (studentClassId: string, gradeClassId: string, targetFilter: string) => {
-    if (!targetFilter) return true;
-    const targetKey = normalizeClassKey(targetFilter);
+    if (!targetFilter || targetFilter === 'ALL') return true;
+    
     const targetClassObj = classes.find(c => c.id === targetFilter || c.name === targetFilter);
-    const targetObjKey = normalizeClassKey(targetClassObj?.name || targetClassObj?.id || '');
+    const targetTokens = Array.from(new Set([
+      normalizeClassKey(targetFilter),
+      normalizeClassKey(targetClassObj?.id || ''),
+      normalizeClassKey(targetClassObj?.name || ''),
+      targetFilter.toLowerCase().trim(),
+      (targetClassObj?.id || '').toLowerCase().trim(),
+      (targetClassObj?.name || '').toLowerCase().trim()
+    ].filter(Boolean)));
 
-    const sKey = normalizeClassKey(studentClassId);
-    const gKey = normalizeClassKey(gradeClassId);
+    const candidateTokens = [
+      ...extractClassTokens(studentClassId),
+      ...extractClassTokens(gradeClassId)
+    ];
 
-    // 1. Normalized comparison (covers '7A' === 'Kelas 7A' === '7a_putri' etc.)
-    if (sKey && (sKey === targetKey || sKey === targetObjKey)) return true;
-    if (gKey && (gKey === targetKey || gKey === targetObjKey)) return true;
+    if (candidateTokens.length === 0) {
+      return true;
+    }
 
-    // 2. Direct string comparison & partial includes
-    const rawTargetLower = targetFilter.toLowerCase().trim();
-    const rawSLower = String(studentClassId || '').toLowerCase().trim();
-    const rawGLower = String(gradeClassId || '').toLowerCase().trim();
-
-    if (rawSLower && (rawSLower === rawTargetLower || rawTargetLower.includes(rawSLower) || rawSLower.includes(rawTargetLower))) return true;
-    if (rawGLower && (rawGLower === rawTargetLower || rawTargetLower.includes(rawGLower) || rawGLower.includes(rawTargetLower))) return true;
-
-    return false;
+    return candidateTokens.some(candidate => 
+      targetTokens.some(target => 
+        candidate === target ||
+        candidate.includes(target) ||
+        target.includes(candidate)
+      )
+    );
   };
 
   // Assignments filtered by selectedClassFilter (for grading assignment dropdown)
   const classAssignments = teacherAssignments.filter(a => {
-    if (!selectedClassFilter) return false;
+    if (!selectedClassFilter || selectedClassFilter === 'ALL') return true;
     const targetKey = normalizeClassKey(selectedClassFilter);
     const targetClassObj = classes.find(c => c.id === selectedClassFilter || c.name === selectedClassFilter);
     const targetObjKey = normalizeClassKey(targetClassObj?.name || targetClassObj?.id || '');
@@ -585,28 +645,26 @@ export default function TeacherPanel() {
       : (a.classId ? a.classId.split(',').map(c => c.trim()) : []);
 
     return asgClasses.some(c => {
-      const cKey = normalizeClassKey(c);
-      return cKey === targetKey || cKey === targetObjKey || c.toLowerCase().includes(targetKey) || targetKey.includes(cKey);
+      const cTokens = extractClassTokens(c);
+      return cTokens.some(tk => tk === targetKey || tk === targetObjKey || tk.includes(targetKey) || targetKey.includes(tk));
     });
   });
 
   // Gather grades filtered by assignments made by this teacher, selected class, assignment, and status
   const currentGrades = grades.filter(g => {
+    const asgObj = assignments.find(a => a.id === g.assignmentId) || teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+
     const isTeacherAsg = 
       teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-      assignments.some(a => {
-        if (a.id !== g.assignmentId) return false;
-        const aTId = String(a.teacherId || '').trim().toLowerCase();
-        const aSubId = String(a.subjectId || '').trim().toLowerCase();
-        return teacherIdList.includes(aTId) || activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(aSubId);
-      }) ||
-      (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase()));
+      (asgObj && isTeacherEntity(asgObj.teacherId, asgObj.subjectId)) ||
+      (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase())) ||
+      (teacherSubjects.length === 0);
 
     if (!isTeacherAsg) return false;
     if (g.status === 'RESET' || g.status === 'NOT_SUBMITTED') return false;
 
     // Filter 1: Class Filter (strictly filters by student's class, never matching assignment's multi-class list)
-    if (selectedClassFilter) {
+    if (selectedClassFilter && selectedClassFilter !== 'ALL') {
       const std = getGradeStudent(g.studentId);
       const studentClass = std?.classId || g.classId || '';
       const gradeClass = g.classId || '';
@@ -875,15 +933,13 @@ export default function TeacherPanel() {
 
   // Calculate statistics
   const ungradedCount = grades.filter(g => {
+    const asgObj = assignments.find(a => a.id === g.assignmentId) || teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+
     const isTeacherAsg = 
       teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-      assignments.some(a => {
-        if (a.id !== g.assignmentId) return false;
-        const aTId = String(a.teacherId || '').trim().toLowerCase();
-        const aSubId = String(a.subjectId || '').trim().toLowerCase();
-        return teacherIdList.includes(aTId) || activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(aSubId);
-      }) ||
-      (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase()));
+      (asgObj && isTeacherEntity(asgObj.teacherId, asgObj.subjectId)) ||
+      (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase())) ||
+      (teacherSubjects.length === 0);
 
     return isTeacherAsg && g.status === 'SUBMITTED';
   }).length;
@@ -1101,15 +1157,13 @@ export default function TeacherPanel() {
                 ) : (
                   <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
                     {(grades || []).filter(g => {
+                      const asgObj = assignments.find(a => a.id === g.assignmentId) || teacherAssignments.find(a => ((a as any).allIds || [a.id]).includes(g.assignmentId));
+
                       const isTeacherAsg = 
                         teacherAssignments.some(a => ((a as any).allIds || [a.id]).includes(g.assignmentId)) ||
-                        assignments.some(a => {
-                          if (a.id !== g.assignmentId) return false;
-                          const aTId = String(a.teacherId || '').trim().toLowerCase();
-                          const aSubId = String(a.subjectId || '').trim().toLowerCase();
-                          return teacherIdList.includes(aTId) || activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(aSubId);
-                        }) ||
-                        (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase()));
+                        (asgObj && isTeacherEntity(asgObj.teacherId, asgObj.subjectId)) ||
+                        (g.subjectId && activeSubjectIds.map(s => String(s).trim().toLowerCase()).includes(String(g.subjectId).trim().toLowerCase())) ||
+                        (teacherSubjects.length === 0);
 
                       return isTeacherAsg && g.status === 'SUBMITTED';
                     }).map(g => {
@@ -1494,6 +1548,7 @@ export default function TeacherPanel() {
                       }}
                     >
                       <option value="">-- Pilih Kelas --</option>
+                      <option value="ALL">Semua Kelas (Tampilkan Semua)</option>
                       {databaseClasses
                         .filter(c => {
                           if (activeClassIds.length === 0) return true;

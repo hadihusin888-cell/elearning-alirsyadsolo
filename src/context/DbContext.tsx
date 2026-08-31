@@ -405,11 +405,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
     // 5. Materials onSnapshot (Optimized per role)
     let materialsQuery;
-    if (currentUser?.role === 'ADMIN') {
+    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'TEACHER') {
       materialsQuery = query(collection(db, 'materials'), limit(200));
-    } else if (currentUser?.role === 'TEACHER') {
-      // Teachers only fetch materials they created
-      materialsQuery = query(collection(db, 'materials'), where('teacherId', '==', currentUser.id));
     } else if (currentUser?.role === 'STUDENT') {
       // Students fetch materials capped to 150 active records
       materialsQuery = query(collection(db, 'materials'), limit(150));
@@ -433,11 +430,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
     // 6. Assignments onSnapshot (Optimized per role)
     let assignmentsQuery;
-    if (currentUser?.role === 'ADMIN') {
+    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'TEACHER') {
       assignmentsQuery = query(collection(db, 'assignments'), limit(200));
-    } else if (currentUser?.role === 'TEACHER') {
-      // Teachers only fetch assignments they created
-      assignmentsQuery = query(collection(db, 'assignments'), where('teacherId', '==', currentUser.id));
     } else if (currentUser?.role === 'STUDENT') {
       // Students fetch assignments capped to 150 active records
       assignmentsQuery = query(collection(db, 'assignments'), limit(150));
@@ -670,10 +664,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
 
       let materialsQuery;
-      if (currentUser?.role === 'ADMIN') {
+      if (currentUser?.role === 'ADMIN' || currentUser?.role === 'TEACHER') {
         materialsQuery = query(collection(db, 'materials'), limit(200));
-      } else if (currentUser?.role === 'TEACHER') {
-        materialsQuery = query(collection(db, 'materials'), where('teacherId', '==', currentUser.id));
       } else if (currentUser?.role === 'STUDENT') {
         materialsQuery = query(collection(db, 'materials'), limit(150));
       } else {
@@ -681,10 +673,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
 
       let assignmentsQuery;
-      if (currentUser?.role === 'ADMIN') {
+      if (currentUser?.role === 'ADMIN' || currentUser?.role === 'TEACHER') {
         assignmentsQuery = query(collection(db, 'assignments'), limit(200));
-      } else if (currentUser?.role === 'TEACHER') {
-        assignmentsQuery = query(collection(db, 'assignments'), where('teacherId', '==', currentUser.id));
       } else if (currentUser?.role === 'STUDENT') {
         assignmentsQuery = query(collection(db, 'assignments'), limit(150));
       } else {
